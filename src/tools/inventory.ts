@@ -135,7 +135,181 @@ export function registerInventoryTools(server: McpServer, client: ShopifyClient)
   });
 }
 
+// ─── Bulk inventory-tracking toggle ──────────────────────────────────────────
+
+const COLLECTION_PRODUCT_IDS = /* GraphQL */ `
+  query CollectionProductIds($id: ID!, $first: Int!, $after: String) {
+    collection(id: $id) {
+      products(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id }
+      }
+    }
+  }
+`;
+
+const PRODUCT_VARIANT_IDS = /* GraphQL */ `
+  query ProductVariantIds($id: ID!, $first: Int!, $after: String) {
+    product(id: $id) {
+      variants(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id }
+      }
+    }
+  }
+`;
+
+const SET_TRACKED = /* GraphQL */ `
+  mutation SetTracked($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+    productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+      productVariants { id }
+      userErrors { field message }
+    }
+  }
+`;
+
+/** Collects every product GID for the given target (single product or whole collection). */
+async function collectProductGids(
+  c: ShopifyClient,
+  args: { productId?: string; collectionId?: string },
+): Promise<string[]> {
+  if (args.productId) return [toGid("Product", args.productId)];
+
+  const gids: string[] = [];
+  let after: string | null = null;
+  do {
+    const res: {
+      data: {
+        collection: {
+          products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string }> };
+        } | null;
+      };
+    } = await c.request(COLLECTION_PRODUCT_IDS, {
+      id: toGid("Collection", args.collectionId!),
+      first: 100,
+      after,
+    });
+    if (!res.data.collection) {
+      throw new Error(`No collection found with id ${gidToId(args.collectionId!)}.`);
+    }
+    for (const n of res.data.collection.products.nodes) gids.push(n.id);
+    after = res.data.collection.products.pageInfo.hasNextPage
+      ? res.data.collection.products.pageInfo.endCursor
+      : null;
+  } while (after);
+  return gids;
+}
+
+/** Collects every variant GID for a product, paginating as needed. */
+async function collectVariantGids(c: ShopifyClient, productGid: string): Promise<string[]> {
+  const ids: string[] = [];
+  let after: string | null = null;
+  do {
+    const res: {
+      data: {
+        product: {
+          variants: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string }> };
+        } | null;
+      };
+    } = await c.request(PRODUCT_VARIANT_IDS, { id: productGid, first: 100, after });
+    if (!res.data.product) break;
+    for (const v of res.data.product.variants.nodes) ids.push(v.id);
+    after = res.data.product.variants.pageInfo.hasNextPage
+      ? res.data.product.variants.pageInfo.endCursor
+      : null;
+  } while (after);
+  return ids;
+}
+
 export function registerInventoryWriteTools(server: McpServer, client: ShopifyClient): void {
+  registerTool(server, client, {
+    name: "shopify_set_inventory_tracking",
+    title: "Set inventory tracking (bulk)",
+    description:
+      "Turn Shopify inventory tracking on or off for every variant of a single product OR every " +
+      "product in a collection. The server iterates products/variants itself (handling pagination) " +
+      "and returns how many variants changed — so a whole collection is one tool call. " +
+      "Provide exactly one of productId or collectionId.",
+    inputSchema: {
+      productId: z
+        .string()
+        .optional()
+        .describe("Apply to all variants of this single product (numeric or GID)."),
+      collectionId: z
+        .string()
+        .optional()
+        .describe("Apply to all variants of every product in this collection (numeric or GID)."),
+      tracked: z
+        .boolean()
+        .describe("true to track inventory quantity; false to stop tracking (sells regardless of stock)."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      if ((!args.productId && !args.collectionId) || (args.productId && args.collectionId)) {
+        throw new Error("Provide exactly one of productId or collectionId.");
+      }
+
+      const productGids = await collectProductGids(c, args);
+
+      let variantsChanged = 0;
+      let productsProcessed = 0;
+      const errors: string[] = [];
+
+      for (const productGid of productGids) {
+        const variantGids = await collectVariantGids(c, productGid);
+        if (variantGids.length === 0) {
+          productsProcessed++;
+          continue;
+        }
+        // productVariantsBulkUpdate accepts many variants per call; chunk to stay well within limits.
+        for (let i = 0; i < variantGids.length; i += 100) {
+          const chunk = variantGids.slice(i, i + 100);
+          const res = await c.request<{
+            productVariantsBulkUpdate: {
+              productVariants: Array<{ id: string }> | null;
+              userErrors: Array<{ field: string[] | null; message: string }>;
+            };
+          }>(SET_TRACKED, {
+            productId: productGid,
+            variants: chunk.map((id) => ({ id, inventoryItem: { tracked: args.tracked } })),
+          });
+          const ue = res.data.productVariantsBulkUpdate.userErrors;
+          if (ue && ue.length > 0) {
+            errors.push(`${gidToId(productGid)}: ${ue.map((e) => e.message).join("; ")}`);
+          } else {
+            variantsChanged += res.data.productVariantsBulkUpdate.productVariants?.length ?? chunk.length;
+          }
+        }
+        productsProcessed++;
+      }
+
+      const scope = args.collectionId
+        ? `collection ${gidToId(args.collectionId)}`
+        : `product ${gidToId(args.productId!)}`;
+      const summary =
+        `Set tracked=${args.tracked} on ${variantsChanged} variant(s) across ${productsProcessed} ` +
+        `product(s) in ${scope}.`;
+      const errBlock =
+        errors.length > 0
+          ? `\n\n**${errors.length} product(s) reported errors:**\n` +
+            errors.slice(0, 20).map((e) => `- ${e}`).join("\n") +
+            (errors.length > 20 ? `\n- …and ${errors.length - 20} more` : "")
+          : "";
+
+      return {
+        markdown: summary + errBlock,
+        structured: {
+          tracked: args.tracked,
+          productsProcessed,
+          variantsChanged,
+          errorCount: errors.length,
+          errors: errors.slice(0, 50),
+        },
+        cost: undefined,
+      };
+    },
+  });
+
   registerTool(server, client, {
     name: "shopify_adjust_inventory",
     title: "Adjust inventory",
