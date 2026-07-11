@@ -1,0 +1,43 @@
+services:
+  shopify-mcp:
+    build: .
+    image: shopify-admin-mcp:latest
+    container_name: shopify-mcp
+    restart: unless-stopped
+    env_file: .env
+    # Ingress is handled by the Cloudflare Tunnel below. Uncomment to expose the
+    # port on the LAN for local testing (e.g. MCP Inspector).
+    # ports:
+    #   - "3000:3000"
+    networks:
+      - mcp-net
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: shopify-mcp-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Set TUNNEL_TOKEN in .env. Configure the tunnel's public hostname to
+      # route mcp.{yourdomain} -> http://shopify-mcp:3000 in the Cloudflare
+      # Zero Trust dashboard (or via a tunnel config).
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    depends_on:
+      - shopify-mcp
+    networks:
+      - mcp-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  mcp-net:
+    driver: bridge

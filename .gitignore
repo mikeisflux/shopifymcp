@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+
+# Secrets — never commit the real environment file.
+.env
+.env.local
+.env.*.local
