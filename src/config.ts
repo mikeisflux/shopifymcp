@@ -3,10 +3,25 @@
  * Exits the process with a clear message if a required var is missing.
  */
 
+/**
+ * How the server authenticates to the Shopify Admin API.
+ * - "client_credentials": Dev Dashboard app — exchange client id/secret for a
+ *   short-lived (~24h) access token that the client fetches and auto-refreshes.
+ *   This is the supported path since legacy custom apps were discontinued
+ *   (Jan 1 2026).
+ * - "static": a pre-2026 legacy custom app token (shpat_...), used as-is.
+ */
+export type ShopifyAuthMode = "client_credentials" | "static";
+
 export interface Config {
   shopifyStoreDomain: string;
-  shopifyAccessToken: string;
   shopifyApiVersion: string;
+  authMode: ShopifyAuthMode;
+  /** Set when authMode === "static". */
+  shopifyAccessToken: string | undefined;
+  /** Set when authMode === "client_credentials". */
+  shopifyClientId: string | undefined;
+  shopifyClientSecret: string | undefined;
   mcpPathSecret: string;
   mcpAuthToken: string | undefined;
   enableWrites: boolean;
@@ -27,6 +42,11 @@ function required(name: string, errors: string[]): string {
   return value.trim();
 }
 
+function optional(name: string): string | undefined {
+  const value = process.env[name];
+  return value && value.trim() !== "" ? value.trim() : undefined;
+}
+
 /**
  * Reads and validates configuration from process.env.
  * Throws with an aggregated message listing every problem found.
@@ -35,9 +55,28 @@ export function loadConfig(): Config {
   const errors: string[] = [];
 
   const shopifyStoreDomain = required("SHOPIFY_STORE_DOMAIN", errors);
-  const shopifyAccessToken = required("SHOPIFY_ACCESS_TOKEN", errors);
   const shopifyApiVersion = required("SHOPIFY_API_VERSION", errors);
   const mcpPathSecret = required("MCP_PATH_SECRET", errors);
+
+  // Auth: prefer client-credentials (Dev Dashboard app), fall back to a static
+  // legacy token. Exactly one mode must be fully configured.
+  const shopifyClientId = optional("SHOPIFY_CLIENT_ID");
+  const shopifyClientSecret = optional("SHOPIFY_CLIENT_SECRET");
+  const shopifyAccessToken = optional("SHOPIFY_ACCESS_TOKEN");
+
+  let authMode: ShopifyAuthMode = "client_credentials";
+  if (shopifyClientId || shopifyClientSecret) {
+    authMode = "client_credentials";
+    if (!shopifyClientId) errors.push("  - SHOPIFY_CLIENT_ID is required when using client credentials");
+    if (!shopifyClientSecret) errors.push("  - SHOPIFY_CLIENT_SECRET is required when using client credentials");
+  } else if (shopifyAccessToken) {
+    authMode = "static";
+  } else {
+    errors.push(
+      "  - No Shopify credentials set. Provide SHOPIFY_CLIENT_ID + SHOPIFY_CLIENT_SECRET " +
+        "(Dev Dashboard app, recommended) or a SHOPIFY_ACCESS_TOKEN (pre-2026 legacy custom app).",
+    );
+  }
 
   if (shopifyStoreDomain && !/^[a-z0-9-]+\.myshopify\.com$/i.test(shopifyStoreDomain)) {
     errors.push(
@@ -82,8 +121,11 @@ export function loadConfig(): Config {
 
   return {
     shopifyStoreDomain,
-    shopifyAccessToken,
     shopifyApiVersion,
+    authMode,
+    shopifyAccessToken,
+    shopifyClientId,
+    shopifyClientSecret,
     mcpPathSecret,
     mcpAuthToken,
     enableWrites,

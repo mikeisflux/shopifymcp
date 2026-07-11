@@ -150,6 +150,7 @@ function main(): void {
       port: config.port,
       writes_enabled: config.enableWrites,
       auth_token_required: Boolean(config.mcpAuthToken),
+      shopify_auth_mode: config.authMode,
       api_version: config.shopifyApiVersion,
     });
   });

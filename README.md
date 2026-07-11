@@ -10,7 +10,7 @@ proxy.
   orders, plus a read-only GraphQL escape hatch).
 - **Write tools** are only registered when `ENABLE_WRITES=true` (create/update products & variants,
   adjust inventory, create/complete draft orders, create discount codes, tag resources).
-- No delete operations, no OAuth — see [Out of scope](#out-of-scope-v1).
+- No delete operations, and no user-facing OAuth on the MCP endpoint — see [Out of scope](#out-of-scope-v1).
 
 ---
 
@@ -66,25 +66,41 @@ src/
 
 ---
 
-## 1. Create a Shopify custom app & access token
+## 1. Create a Shopify app & get credentials
 
 This step is manual and is **not** automated by this project.
 
-1. In Shopify admin go to **Settings → Apps and sales channels → Develop apps**.
-   (You may need to click **Allow custom app development** the first time.)
-2. Click **Create an app**, name it e.g. `Claude MCP`.
-3. Open **Configuration → Admin API integration → Configure** and select the Admin API access scopes
-   you need — see [Access scopes](#access-scopes). Grant only `read_*` scopes if you will keep
-   `ENABLE_WRITES=false`.
-4. Click **Install app**.
-5. Under **API credentials**, reveal and copy the **Admin API access token** (starts with `shpat_`).
-   You can only reveal it once — store it safely.
+> **Heads up (2026):** Legacy *custom apps* created from the store admin (the `shpat_…`-token flow)
+> can **no longer be created** as of **January 1, 2026**. New setups use a **Dev Dashboard app** with
+> the **client-credentials grant** — you get a **Client ID + Client secret** instead of a static
+> token, and this server exchanges them for a short-lived access token that it **refreshes
+> automatically** (client-credentials tokens last ~24h). See
+> [Using the client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/client-credentials-grant).
 
-> The access token grants API access to your store. It goes in `.env` only — **never** commit it or
-> bake it into the Docker image.
+**Method 1 — Dev Dashboard app (recommended):**
 
-All requests this server makes are `POST https://{SHOPIFY_STORE_DOMAIN}/admin/api/{SHOPIFY_API_VERSION}/graphql.json`
-with the header `X-Shopify-Access-Token: {token}`.
+1. Go to the [Shopify Dev Dashboard](https://dev.shopify.com) → your organization → **Apps → Create app**.
+2. Open the app's config (**Versions → create/edit a version**) and set:
+   - **App URL:** your future tunnel URL, e.g. `https://mcp.yourdomain.com` (placeholder is fine — this
+     server has no app UI).
+   - **Embed app in Shopify admin:** **off**.
+   - **Scopes:** paste the list from [Access scopes](#access-scopes).
+   - **Redirect URLs:** any placeholder HTTPS URL (not used by this server).
+   - **Release** the version.
+3. **Install the app on your store** (the store must belong to the *same organization* as the app, or
+   client credentials returns `shop_not_permitted`).
+4. Copy the app's **Client ID** and **Client secret** into `.env` as `SHOPIFY_CLIENT_ID` /
+   `SHOPIFY_CLIENT_SECRET`.
+
+**Method 2 — legacy static token (only if you already have one):** if you created a custom app *before*
+2026-01-01, its `shpat_…` token still works — leave the client id/secret blank and set
+`SHOPIFY_ACCESS_TOKEN` instead.
+
+> Credentials go in `.env` only — **never** commit them or bake them into the Docker image.
+
+All API requests go to `POST https://{SHOPIFY_STORE_DOMAIN}/admin/api/{SHOPIFY_API_VERSION}/graphql.json`
+with an `X-Shopify-Access-Token` header. In client-credentials mode the token is obtained from
+`POST https://{SHOPIFY_STORE_DOMAIN}/admin/oauth/access_token` and cached/refreshed by the server.
 
 ---
 
@@ -99,17 +115,19 @@ cp .env.example .env
 | Variable | Required | Notes |
 |---|---|---|
 | `SHOPIFY_STORE_DOMAIN` | ✅ | `yourstore.myshopify.com` (no protocol, no path). |
-| `SHOPIFY_ACCESS_TOKEN` | ✅ | The `shpat_...` token from step 1. |
 | `SHOPIFY_API_VERSION` | ✅ | Pin the latest **stable** version, e.g. `2026-04`. See the [API version docs](https://shopify.dev/docs/api/admin-graphql). |
+| `SHOPIFY_CLIENT_ID` + `SHOPIFY_CLIENT_SECRET` | ✅ (method 1) | From your Dev Dashboard app. The server auto-fetches/refreshes the access token. |
+| `SHOPIFY_ACCESS_TOKEN` | ✅ (method 2) | A pre-2026 `shpat_…` token. Use **instead of** client id/secret. |
 | `MCP_PATH_SECRET` | ✅ | 32+ random chars. Generate with `openssl rand -hex 24`. |
 | `MCP_AUTH_TOKEN` | optional | Bearer token. If set, requests must send `Authorization: Bearer …`. Leave blank to rely on the secret path only. |
-| `ENABLE_WRITES` | — | `true` to register write/mutation tools. Defaults to `false`. |
+| `ENABLE_WRITES` | — | `true` to register write/mutation tools (needs `write_*` scopes). Defaults to `false`. |
 | `PORT` | — | Defaults to `3000`. |
 | `LOG_LEVEL` | — | `debug` \| `info` \| `warn` \| `error`. Defaults to `info`. |
 | `TUNNEL_TOKEN` | — | Cloudflare Tunnel token (used by the `cloudflared` compose service only). |
 
-The server validates all required variables at startup and exits with a clear message listing every
-problem if something is missing or malformed.
+Provide **either** `SHOPIFY_CLIENT_ID` + `SHOPIFY_CLIENT_SECRET` **or** `SHOPIFY_ACCESS_TOKEN`. The
+server validates this at startup and exits with a clear message if credentials are missing or
+malformed.
 
 ---
 
@@ -266,18 +284,24 @@ missing access scope so you know which one to add.
 Grant the app the scopes matching the tools you use. Read scopes are sufficient when
 `ENABLE_WRITES=false`.
 
+Paste these as a comma-separated list in the app's **Scopes** field.
+
 **Read (minimum):**
-`read_products`, `read_orders`, `read_customers`, `read_draft_orders`, `read_inventory`,
-`read_locations`, `read_discounts`
+```
+read_products,read_orders,read_customers,read_draft_orders,read_inventory,read_locations,read_discounts
+```
 
-**Write (add when `ENABLE_WRITES=true`):**
-`write_products`, `write_inventory`, `write_draft_orders`, `write_discounts`
+**Read + write (when `ENABLE_WRITES=true`):**
+```
+read_products,read_orders,read_customers,read_draft_orders,read_inventory,read_locations,read_discounts,write_products,write_orders,write_customers,write_inventory,write_draft_orders,write_discounts
+```
 
-> `shopify_tag_resource` needs the write scope for whichever resource you tag (e.g. `write_products`,
+> `shopify_tag_resource` needs the write scope for whichever resource you tag (`write_products`,
 > `write_orders`, `write_customers`).
 
-If a call returns an access-denied error, the message tells you the missing scope — add it in the
-app's configuration and **reinstall** the app for the change to take effect.
+If a call returns an access-denied error, the message names the missing scope — add it to the app's
+scopes, **release a new app version, and reinstall/update** the app on the store for the change to
+take effect. (For a legacy static-token app, update its scopes and reinstall.)
 
 ---
 
@@ -328,11 +352,12 @@ handler:
    `Authorization: Bearer {token}` or receive `401`. It's optional so it can be disabled for clients
    that cannot send custom headers, leaving layer 1 in force.
 
-Both comparisons are constant-time. There is **no OAuth** in v1.
+Both comparisons are constant-time. The MCP endpoint itself uses no OAuth (bearer + secret path only).
 
-Logging is structured JSON to stdout with timestamp, tool name, duration, Shopify query cost, and
-success/error. The access token, auth token, and full customer PII are **never** logged — only
-resource ids (order/customer/product), not names, emails, or addresses.
+**Shopify token handling:** in client-credentials mode the Shopify access token is fetched
+server-side, held only in memory, and refreshed automatically before it expires (and on a `401`). The
+client id/secret, the access token, the MCP auth token, and full customer PII are **never** logged —
+logs carry only resource ids (order/customer/product), not names, emails, or addresses.
 
 ---
 
@@ -356,5 +381,6 @@ Works on any NAS with Docker / Container Manager (Synology, QNAP, Unraid, …).
 
 ## Out of scope (v1)
 
-OAuth, multi-store support, webhooks, delete operations, theme/content editing, the Storefront API,
+User-facing / multi-tenant OAuth on the MCP endpoint (the Shopify side does use the client-credentials
+grant), multi-store support, webhooks, delete operations, theme/content editing, the Storefront API,
 and a metrics dashboard.
