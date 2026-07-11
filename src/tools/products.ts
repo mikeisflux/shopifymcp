@@ -84,7 +84,9 @@ const GET_PRODUCT = /* GraphQL */ `
   query GetProduct($id: ID!) {
     product(id: $id) {
       id title handle status descriptionHtml productType vendor tags
-      totalInventory createdAt updatedAt onlineStoreUrl
+      totalInventory createdAt updatedAt onlineStoreUrl templateSuffix
+      seo { title description }
+      options { id name position values }
       priceRangeV2 {
         minVariantPrice { amount currencyCode }
         maxVariantPrice { amount currencyCode }
@@ -93,11 +95,17 @@ const GET_PRODUCT = /* GraphQL */ `
         nodes {
           id title sku price compareAtPrice inventoryQuantity inventoryPolicy
           selectedOptions { name value }
-          inventoryItem { id }
+          inventoryItem { id tracked }
+        }
+      }
+      media(first: 25) {
+        nodes {
+          id alt mediaContentType
+          ... on MediaImage { image { url } }
         }
       }
       metafields(first: 50) {
-        nodes { namespace key value type }
+        nodes { id namespace key value type }
       }
     }
   }
@@ -222,6 +230,9 @@ export function registerProductTools(server: McpServer, client: ShopifyClient): 
           createdAt: string;
           updatedAt: string;
           onlineStoreUrl: string | null;
+          templateSuffix: string | null;
+          seo: { title: string | null; description: string | null } | null;
+          options: Array<{ id: string; name: string; position: number; values: string[] }>;
           priceRangeV2: { minVariantPrice: Money; maxVariantPrice: Money } | null;
           variants: {
             nodes: Array<{
@@ -233,11 +244,19 @@ export function registerProductTools(server: McpServer, client: ShopifyClient): 
               inventoryQuantity: number | null;
               inventoryPolicy: string;
               selectedOptions: Array<{ name: string; value: string }>;
-              inventoryItem: { id: string } | null;
+              inventoryItem: { id: string; tracked: boolean } | null;
+            }>;
+          };
+          media: {
+            nodes: Array<{
+              id: string;
+              alt: string | null;
+              mediaContentType: string;
+              image?: { url: string } | null;
             }>;
           };
           metafields: {
-            nodes: Array<{ namespace: string; key: string; value: string; type: string }>;
+            nodes: Array<{ id: string; namespace: string; key: string; value: string; type: string }>;
           };
         } | null;
       }>(GET_PRODUCT, { id: toGid("Product", args.id) });
@@ -260,8 +279,17 @@ export function registerProductTools(server: McpServer, client: ShopifyClient): 
         ["Type", product.productType],
         ["Tags", product.tags.join(", ")],
         ["Total inventory", product.totalInventory],
+        ["SEO title", product.seo?.title],
+        ["SEO description", product.seo?.description],
+        ["Theme template", product.templateSuffix],
         ["URL", product.onlineStoreUrl],
       ]);
+
+      const optionsBlock =
+        product.options.length > 0
+          ? "\n\n**Options:** " +
+            product.options.map((o) => `${o.name} (${o.values.join(", ")})`).join(" · ")
+          : "";
 
       const variantRows = product.variants.nodes.map((v) => [
         gidToId(v.id),
@@ -271,11 +299,26 @@ export function registerProductTools(server: McpServer, client: ShopifyClient): 
         v.compareAtPrice ?? "",
         v.inventoryQuantity ?? "",
         v.inventoryPolicy,
+        v.inventoryItem?.tracked === false ? "no" : "yes",
       ]);
       const variantTable = markdownTable(
-        ["Variant ID", "Title", "SKU", "Price", "Compare-at", "Qty", "Policy"],
+        ["Variant ID", "Title", "SKU", "Price", "Compare-at", "Qty", "Policy", "Tracked"],
         variantRows,
       );
+
+      const mediaTable =
+        product.media.nodes.length > 0
+          ? "\n\n**Media**\n\n" +
+            markdownTable(
+              ["Media ID", "Type", "Alt", "URL"],
+              product.media.nodes.map((m) => [
+                gidToId(m.id),
+                m.mediaContentType,
+                m.alt ?? "",
+                m.image?.url ?? "",
+              ]),
+            )
+          : "";
 
       const metaTable =
         product.metafields.nodes.length > 0
@@ -287,7 +330,7 @@ export function registerProductTools(server: McpServer, client: ShopifyClient): 
           : "";
 
       return {
-        markdown: `### ${product.title}\n\n${header}\n\n**Variants**\n\n${variantTable}${metaTable}`,
+        markdown: `### ${product.title}\n\n${header}${optionsBlock}\n\n**Variants**\n\n${variantTable}${mediaTable}${metaTable}`,
         structured: { product: stripGids(product) },
         cost: res.cost,
       };
@@ -318,7 +361,10 @@ const UPDATE_PRODUCT = /* GraphQL */ `
 const UPDATE_VARIANTS = /* GraphQL */ `
   mutation UpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
     productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-      productVariants { id title sku price compareAtPrice inventoryPolicy }
+      productVariants {
+        id title sku price compareAtPrice inventoryPolicy
+        inventoryItem { tracked }
+      }
       userErrors { field message }
     }
   }
@@ -345,6 +391,45 @@ const CREATE_VARIANTS = /* GraphQL */ `
   }
 `;
 
+const DELETE_VARIANTS = /* GraphQL */ `
+  mutation DeleteVariants($productId: ID!, $variantsIds: [ID!]!) {
+    productVariantsBulkDelete(productId: $productId, variantsIds: $variantsIds) {
+      product { id title }
+      userErrors { field message }
+    }
+  }
+`;
+
+const CREATE_MEDIA = /* GraphQL */ `
+  mutation CreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+    productCreateMedia(productId: $productId, media: $media) {
+      media {
+        alt mediaContentType status
+        ... on MediaImage { id image { url } }
+      }
+      mediaUserErrors { field message }
+    }
+  }
+`;
+
+const DELETE_MEDIA = /* GraphQL */ `
+  mutation DeleteMedia($productId: ID!, $mediaIds: [ID!]!) {
+    productDeleteMedia(productId: $productId, mediaIds: $mediaIds) {
+      deletedMediaIds
+      mediaUserErrors { field message }
+    }
+  }
+`;
+
+const SET_METAFIELDS = /* GraphQL */ `
+  mutation SetMetafields($metafields: [MetafieldsSetInput!]!) {
+    metafieldsSet(metafields: $metafields) {
+      metafields { id namespace key value type ownerType }
+      userErrors { field message }
+    }
+  }
+`;
+
 export function registerProductWriteTools(server: McpServer, client: ShopifyClient): void {
   registerTool(server, client, {
     name: "shopify_create_product",
@@ -358,6 +443,9 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
       vendor: z.string().optional(),
       productType: z.string().optional(),
       tags: z.array(z.string()).optional().describe('Tags, e.g. ["sale", "new"].'),
+      handle: z.string().optional().describe("URL handle/slug. Auto-generated from the title if omitted."),
+      seoTitle: z.string().optional().describe("SEO/browser title tag."),
+      seoDescription: z.string().optional().describe("SEO meta description."),
       status: z
         .enum(["ACTIVE", "ARCHIVED", "DRAFT"])
         .default("DRAFT")
@@ -365,21 +453,24 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     handler: async (args, c) => {
+      const productInput: Record<string, unknown> = {
+        title: args.title,
+        descriptionHtml: args.descriptionHtml,
+        vendor: args.vendor,
+        productType: args.productType,
+        tags: args.tags,
+        handle: args.handle,
+        status: args.status,
+      };
+      if (args.seoTitle !== undefined || args.seoDescription !== undefined) {
+        productInput.seo = { title: args.seoTitle, description: args.seoDescription };
+      }
       const res = await c.request<{
         productCreate: {
           product: { id: string; title: string; handle: string; status: string } | null;
           userErrors: Array<{ field: string[] | null; message: string }>;
         };
-      }>(CREATE_PRODUCT, {
-        product: {
-          title: args.title,
-          descriptionHtml: args.descriptionHtml,
-          vendor: args.vendor,
-          productType: args.productType,
-          tags: args.tags,
-          status: args.status,
-        },
-      });
+      }>(CREATE_PRODUCT, { product: productInput });
       assertNoUserErrors(res.data.productCreate.userErrors);
       const product = res.data.productCreate.product!;
       return {
@@ -401,6 +492,13 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
       vendor: z.string().optional(),
       productType: z.string().optional(),
       tags: z.array(z.string()).optional().describe("Replaces the full tag list."),
+      handle: z.string().optional().describe("URL handle/slug."),
+      seoTitle: z.string().optional().describe("SEO/browser title tag."),
+      seoDescription: z.string().optional().describe("SEO meta description."),
+      templateSuffix: z
+        .string()
+        .optional()
+        .describe('Theme template suffix, e.g. "wholesale". Empty string resets to the default template.'),
       status: z.enum(["ACTIVE", "ARCHIVED", "DRAFT"]).optional(),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
@@ -411,7 +509,12 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
       if (args.vendor !== undefined) input.vendor = args.vendor;
       if (args.productType !== undefined) input.productType = args.productType;
       if (args.tags !== undefined) input.tags = args.tags;
+      if (args.handle !== undefined) input.handle = args.handle;
+      if (args.templateSuffix !== undefined) input.templateSuffix = args.templateSuffix || null;
       if (args.status !== undefined) input.status = args.status;
+      if (args.seoTitle !== undefined || args.seoDescription !== undefined) {
+        input.seo = { title: args.seoTitle, description: args.seoDescription };
+      }
 
       const res = await c.request<{
         productUpdate: {
@@ -433,8 +536,8 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
     name: "shopify_update_variant",
     title: "Update product variant",
     description:
-      "Update a single variant's price, compare-at price, SKU, or inventory policy. " +
-      "Requires both the product id and the variant id.",
+      "Update a single variant's price, compare-at price, SKU, inventory policy, or whether Shopify " +
+      "tracks its inventory quantity. Requires both the product id and the variant id.",
     inputSchema: {
       productId: z.string().describe("Parent product id (numeric or GID)."),
       variantId: z.string().describe("Variant id (numeric or GID)."),
@@ -445,6 +548,13 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
         .enum(["DENY", "CONTINUE"])
         .optional()
         .describe("Whether to allow selling when out of stock (CONTINUE) or not (DENY)."),
+      tracked: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether Shopify tracks this variant's inventory quantity. Set false to stop tracking " +
+            "(sells regardless of stock); true to track. Requires the write_inventory scope.",
+        ),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     handler: async (args, c) => {
@@ -452,7 +562,12 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
       if (args.price !== undefined) variant.price = args.price;
       if (args.compareAtPrice !== undefined) variant.compareAtPrice = args.compareAtPrice || null;
       if (args.inventoryPolicy !== undefined) variant.inventoryPolicy = args.inventoryPolicy;
-      if (args.sku !== undefined) variant.inventoryItem = { sku: args.sku };
+
+      // sku and tracked both live on the variant's inventoryItem.
+      const inventoryItem: Record<string, unknown> = {};
+      if (args.sku !== undefined) inventoryItem.sku = args.sku;
+      if (args.tracked !== undefined) inventoryItem.tracked = args.tracked;
+      if (Object.keys(inventoryItem).length > 0) variant.inventoryItem = inventoryItem;
 
       const res = await c.request<{
         productVariantsBulkUpdate: {
@@ -463,6 +578,7 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
             price: string;
             compareAtPrice: string | null;
             inventoryPolicy: string;
+            inventoryItem: { tracked: boolean } | null;
           }> | null;
           userErrors: Array<{ field: string[] | null; message: string }>;
         };
@@ -474,7 +590,8 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
       const updated = res.data.productVariantsBulkUpdate.productVariants?.[0];
       return {
         markdown: updated
-          ? `Updated variant ${gidToId(updated.id)} (SKU ${updated.sku ?? "—"}): price ${updated.price}, policy ${updated.inventoryPolicy}.`
+          ? `Updated variant ${gidToId(updated.id)} (SKU ${updated.sku ?? "—"}): price ${updated.price}, ` +
+            `policy ${updated.inventoryPolicy}, tracked ${updated.inventoryItem?.tracked ?? "?"}.`
           : "Variant updated.",
         structured: { variant: updated ? stripGids(updated) : null },
         cost: res.cost,
@@ -600,6 +717,182 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
             )
           : "No variants were created.",
         structured: { variants: stripGids(created) },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_delete_variant",
+    title: "Delete product variants",
+    description:
+      "Delete one or more variants from a product. A product must keep at least one variant. " +
+      "This is irreversible.",
+    inputSchema: {
+      productId: z.string().describe("Parent product id (numeric or GID)."),
+      variantIds: z
+        .array(z.string())
+        .min(1)
+        .describe("Variant ids to delete (numeric or GID)."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    handler: async (args, c) => {
+      const res = await c.request<{
+        productVariantsBulkDelete: {
+          product: { id: string; title: string } | null;
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(DELETE_VARIANTS, {
+        productId: toGid("Product", args.productId),
+        variantsIds: args.variantIds.map((id) => toGid("ProductVariant", id)),
+      });
+      assertNoUserErrors(res.data.productVariantsBulkDelete.userErrors);
+      return {
+        markdown: `Deleted ${args.variantIds.length} variant(s) from product ${gidToId(args.productId)}.`,
+        structured: { product: stripGids(res.data.productVariantsBulkDelete.product) },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_add_product_media",
+    title: "Add product media",
+    description:
+      "Add image(s) to a product from public image URLs, with optional alt text. Shopify fetches " +
+      "each URL asynchronously. Use shopify_get_product afterward to see the resulting media.",
+    inputSchema: {
+      productId: z.string().describe("Product to add media to (numeric or GID)."),
+      images: z
+        .array(
+          z.object({
+            url: z.string().describe("Public URL of the image to import."),
+            alt: z.string().optional().describe("Alt text for accessibility/SEO."),
+          }),
+        )
+        .min(1)
+        .describe("One or more images to add."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    handler: async (args, c) => {
+      const media = args.images.map((img) => ({
+        originalSource: img.url,
+        alt: img.alt,
+        mediaContentType: "IMAGE",
+      }));
+      const res = await c.request<{
+        productCreateMedia: {
+          media: Array<{
+            alt: string | null;
+            mediaContentType: string;
+            status: string;
+            id?: string;
+            image?: { url: string } | null;
+          }> | null;
+          mediaUserErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(CREATE_MEDIA, { productId: toGid("Product", args.productId), media });
+      assertNoUserErrors(res.data.productCreateMedia.mediaUserErrors);
+      const added = res.data.productCreateMedia.media ?? [];
+      return {
+        markdown:
+          `Queued ${added.length} image(s) for product ${gidToId(args.productId)} ` +
+          `(Shopify processes them asynchronously; check shopify_get_product shortly).`,
+        structured: { media: stripGids(added) },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_delete_product_media",
+    title: "Delete product media",
+    description:
+      "Remove media (images/videos) from a product by media id. Get media ids from " +
+      "shopify_get_product. This is irreversible.",
+    inputSchema: {
+      productId: z.string().describe("Parent product id (numeric or GID)."),
+      mediaIds: z
+        .array(z.string())
+        .min(1)
+        .describe("Media ids to delete (numeric or GID; from shopify_get_product's Media table)."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    handler: async (args, c) => {
+      const res = await c.request<{
+        productDeleteMedia: {
+          deletedMediaIds: string[] | null;
+          mediaUserErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(DELETE_MEDIA, {
+        productId: toGid("Product", args.productId),
+        mediaIds: args.mediaIds.map((id) => toGid("MediaImage", id)),
+      });
+      assertNoUserErrors(res.data.productDeleteMedia.mediaUserErrors);
+      const deleted = res.data.productDeleteMedia.deletedMediaIds ?? [];
+      return {
+        markdown: `Deleted ${deleted.length} media item(s) from product ${gidToId(args.productId)}.`,
+        structured: { deletedMediaIds: deleted.map((id) => gidToId(id)) },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_set_metafield",
+    title: "Set a metafield",
+    description:
+      "Set (create or overwrite) a metafield on a product or variant. Metafields store custom " +
+      "structured data. Provide the value as a string matching the given type.",
+    inputSchema: {
+      ownerType: z
+        .enum(["product", "variant"])
+        .default("product")
+        .describe("Which resource the metafield belongs to."),
+      ownerId: z.string().describe("Id of the product or variant (numeric or GID)."),
+      namespace: z.string().describe('Metafield namespace, e.g. "custom".'),
+      key: z.string().describe('Metafield key, e.g. "material".'),
+      value: z.string().describe("The value, as a string matching `type`."),
+      type: z
+        .string()
+        .default("single_line_text_field")
+        .describe(
+          'Metafield type, e.g. "single_line_text_field", "number_integer", "boolean", "json", ' +
+            '"multi_line_text_field". Defaults to single_line_text_field.',
+        ),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      const ownerResource = args.ownerType === "variant" ? "ProductVariant" : "Product";
+      const res = await c.request<{
+        metafieldsSet: {
+          metafields: Array<{
+            id: string;
+            namespace: string;
+            key: string;
+            value: string;
+            type: string;
+          }> | null;
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(SET_METAFIELDS, {
+        metafields: [
+          {
+            ownerId: toGid(ownerResource, args.ownerId),
+            namespace: args.namespace,
+            key: args.key,
+            value: args.value,
+            type: args.type,
+          },
+        ],
+      });
+      assertNoUserErrors(res.data.metafieldsSet.userErrors);
+      const metafield = res.data.metafieldsSet.metafields?.[0];
+      return {
+        markdown: metafield
+          ? `Set metafield **${metafield.namespace}.${metafield.key}** = \`${metafield.value}\` (${metafield.type}) on ${args.ownerType} ${gidToId(args.ownerId)}.`
+          : "Metafield set.",
+        structured: { metafield: metafield ? stripGids(metafield) : null },
         cost: res.cost,
       };
     },

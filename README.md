@@ -245,7 +245,7 @@ either form is accepted in input. Long lists are truncated with a note.
 | Tool | Description |
 |---|---|
 | `shopify_list_products` | Filter by query, status, or collection. Returns id, title, status, handle, variant count, price range. |
-| `shopify_get_product` | Full product incl. variants (SKUs, prices, inventory qty, policy), options, metafields. |
+| `shopify_get_product` | Full product incl. variants (SKUs, prices, inventory qty, policy, tracking), options, media (with ids), SEO, and metafields. |
 | `shopify_list_orders` | Filter by status, financial status, fulfillment status, created-at range, query. |
 | `shopify_get_order` | Line items w/ SKUs, shipping address, fulfillments + tracking, transactions summary. |
 | `shopify_list_customers` | Search customers; returns order count and total spent. |
@@ -261,11 +261,15 @@ either form is accepted in input. Long lists are truncated with a note.
 
 | Tool | Description |
 |---|---|
-| `shopify_create_product` | Create a product (a default variant is created automatically). |
-| `shopify_update_product` | Partial product update. |
+| `shopify_create_product` | Create a product, incl. handle and SEO title/description (a default variant is created automatically). |
+| `shopify_update_product` | Partial product update: title, description, vendor, type, tags, handle, SEO, theme template, status. |
 | `shopify_duplicate_product` | Duplicate a product (copies variants, options, and optionally images) with a new title/status. |
-| `shopify_update_variant` | Update a variant's price, compare-at, SKU, inventory policy. |
+| `shopify_update_variant` | Update a variant's price, compare-at, SKU, inventory policy, or inventory tracking. |
 | `shopify_create_variant` | Add one or more variants (with option values) to an existing product. |
+| `shopify_delete_variant` | Delete variants from a product (irreversible; a product keeps ≥1 variant). |
+| `shopify_add_product_media` | Add image(s) to a product from public URLs, with alt text. |
+| `shopify_delete_product_media` | Remove media from a product by media id. |
+| `shopify_set_metafield` | Set/overwrite a metafield on a product or variant. |
 | `shopify_adjust_inventory` | Adjust available quantity at a location by a signed delta. |
 | `shopify_create_draft_order` | Line items by variant id or SKU, customer, shipping, discount. |
 | `shopify_complete_draft_order` | Turn a draft order into a real order. |
