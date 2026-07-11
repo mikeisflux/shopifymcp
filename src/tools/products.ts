@@ -324,6 +324,27 @@ const UPDATE_VARIANTS = /* GraphQL */ `
   }
 `;
 
+const DUPLICATE_PRODUCT = /* GraphQL */ `
+  mutation DuplicateProduct($productId: ID!, $newTitle: String!, $newStatus: ProductStatus, $includeImages: Boolean) {
+    productDuplicate(productId: $productId, newTitle: $newTitle, newStatus: $newStatus, includeImages: $includeImages) {
+      newProduct { id title handle status }
+      userErrors { field message }
+    }
+  }
+`;
+
+const CREATE_VARIANTS = /* GraphQL */ `
+  mutation CreateVariants($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+    productVariantsBulkCreate(productId: $productId, variants: $variants) {
+      productVariants {
+        id title sku price compareAtPrice inventoryPolicy
+        selectedOptions { name value }
+      }
+      userErrors { field message }
+    }
+  }
+`;
+
 export function registerProductWriteTools(server: McpServer, client: ShopifyClient): void {
   registerTool(server, client, {
     name: "shopify_create_product",
@@ -456,6 +477,129 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
           ? `Updated variant ${gidToId(updated.id)} (SKU ${updated.sku ?? "—"}): price ${updated.price}, policy ${updated.inventoryPolicy}.`
           : "Variant updated.",
         structured: { variant: updated ? stripGids(updated) : null },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_duplicate_product",
+    title: "Duplicate product",
+    description:
+      "Duplicate an existing product into a new one, copying all variants, options, and (optionally) " +
+      "images. Give it a new title and an optional status for the copy.",
+    inputSchema: {
+      id: z.string().describe("Source product id to duplicate (numeric or GID)."),
+      newTitle: z.string().describe("Title for the new duplicated product."),
+      status: z
+        .enum(["ACTIVE", "ARCHIVED", "DRAFT"])
+        .optional()
+        .describe("Status for the new product. Omit to inherit the source product's status."),
+      includeImages: z
+        .boolean()
+        .default(true)
+        .describe("Copy the source product's images into the duplicate."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    handler: async (args, c) => {
+      const res = await c.request<{
+        productDuplicate: {
+          newProduct: { id: string; title: string; handle: string; status: string } | null;
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(DUPLICATE_PRODUCT, {
+        productId: toGid("Product", args.id),
+        newTitle: args.newTitle,
+        newStatus: args.status,
+        includeImages: args.includeImages,
+      });
+      assertNoUserErrors(res.data.productDuplicate.userErrors);
+      const product = res.data.productDuplicate.newProduct!;
+      return {
+        markdown:
+          `Duplicated product ${gidToId(args.id)} into **${product.title}** ` +
+          `(id ${gidToId(product.id)}, status ${product.status}). All variants and options were copied.`,
+        structured: { product: stripGids(product) },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_create_variant",
+    title: "Create product variants",
+    description:
+      "Add one or more variants to an existing product. For products with options (e.g. Size/Color), " +
+      "give each variant its optionValues so Shopify knows which combination it represents.",
+    inputSchema: {
+      productId: z.string().describe("Product to add variants to (numeric or GID)."),
+      variants: z
+        .array(
+          z.object({
+            price: z.string().optional().describe('Price as a decimal string, e.g. "19.99".'),
+            compareAtPrice: z.string().optional().describe('Compare-at price, e.g. "29.99".'),
+            sku: z.string().optional().describe("SKU (stored on the inventory item)."),
+            inventoryPolicy: z
+              .enum(["DENY", "CONTINUE"])
+              .optional()
+              .describe("Allow selling when out of stock (CONTINUE) or not (DENY)."),
+            optionValues: z
+              .array(
+                z.object({
+                  optionName: z.string().describe('The product option name, e.g. "Size".'),
+                  name: z.string().describe('The value for this variant, e.g. "XL".'),
+                }),
+              )
+              .optional()
+              .describe(
+                "Option values for this variant. Required when the product has options; " +
+                  "one entry per option, e.g. [{optionName:\"Size\",name:\"XL\"},{optionName:\"Color\",name:\"Red\"}].",
+              ),
+          }),
+        )
+        .min(1)
+        .describe("One or more variants to create."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    handler: async (args, c) => {
+      const variants = args.variants.map((v) => {
+        const out: Record<string, unknown> = {};
+        if (v.price !== undefined) out.price = v.price;
+        if (v.compareAtPrice !== undefined) out.compareAtPrice = v.compareAtPrice || null;
+        if (v.inventoryPolicy !== undefined) out.inventoryPolicy = v.inventoryPolicy;
+        if (v.sku !== undefined) out.inventoryItem = { sku: v.sku };
+        if (v.optionValues !== undefined) {
+          out.optionValues = v.optionValues.map((o) => ({ optionName: o.optionName, name: o.name }));
+        }
+        return out;
+      });
+
+      const res = await c.request<{
+        productVariantsBulkCreate: {
+          productVariants: Array<{
+            id: string;
+            title: string;
+            sku: string | null;
+            price: string;
+            compareAtPrice: string | null;
+            inventoryPolicy: string;
+            selectedOptions: Array<{ name: string; value: string }>;
+          }> | null;
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(CREATE_VARIANTS, { productId: toGid("Product", args.productId), variants });
+
+      assertNoUserErrors(res.data.productVariantsBulkCreate.userErrors);
+      const created = res.data.productVariantsBulkCreate.productVariants ?? [];
+      return {
+        markdown: created.length
+          ? `Added ${created.length} variant(s) to product ${gidToId(args.productId)}:\n\n` +
+            markdownTable(
+              ["Variant ID", "Title", "SKU", "Price"],
+              created.map((v) => [gidToId(v.id), v.title, v.sku ?? "", v.price]),
+            )
+          : "No variants were created.",
+        structured: { variants: stripGids(created) },
         cost: res.cost,
       };
     },

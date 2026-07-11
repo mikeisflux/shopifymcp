@@ -263,7 +263,9 @@ either form is accepted in input. Long lists are truncated with a note.
 |---|---|
 | `shopify_create_product` | Create a product (a default variant is created automatically). |
 | `shopify_update_product` | Partial product update. |
+| `shopify_duplicate_product` | Duplicate a product (copies variants, options, and optionally images) with a new title/status. |
 | `shopify_update_variant` | Update a variant's price, compare-at, SKU, inventory policy. |
+| `shopify_create_variant` | Add one or more variants (with option values) to an existing product. |
 | `shopify_adjust_inventory` | Adjust available quantity at a location by a signed delta. |
 | `shopify_create_draft_order` | Line items by variant id or SKU, customer, shipping, discount. |
 | `shopify_complete_draft_order` | Turn a draft order into a real order. |
