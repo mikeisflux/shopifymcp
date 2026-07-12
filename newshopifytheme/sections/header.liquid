@@ -85,7 +85,7 @@
   .dropdown-list a { padding: 9px 12px; border-radius: 3px; color: var(--muted); font-size: 13.5px; transition: background .12s, color .12s; }
   .dropdown-list a:hover { background: var(--ink-2); color: var(--bone); }
 
-  .dropdown--mega { left: 0; right: 0; width: auto; transform: translateY(6px); padding: 20px; }
+  .dropdown--mega { left: 0; right: 0; width: auto; transform: translateY(6px); padding: 20px; max-height: min(72vh, 640px); overflow-y: auto; }
   .nav-item:hover > .dropdown--mega, .nav-item:focus-within > .dropdown--mega { transform: translateY(0); }
   .mega-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 20px; }
   .mega-col { padding: 6px 0; }
@@ -95,7 +95,7 @@
   .mega-subs a { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); border: 1px solid var(--hair); border-radius: 999px; padding: 3px 8px; transition: all .12s; }
   .mega-subs a:hover { border-color: var(--red); color: var(--bone); }
 
-  .mega-linklist { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px 16px; }
+  .mega-linklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 16px; }
   .mega-linklist a { padding: 8px 10px; border-radius: 3px; color: var(--muted); font-size: 12.5px; font-family: var(--f-mono); letter-spacing: .03em; text-transform: uppercase; transition: background .12s, color .12s; }
   .mega-linklist a:hover { background: var(--ink-2); color: var(--bone); }
 
@@ -226,12 +226,23 @@
             assign is_auto = true
             assign is_mega = true
           endif
+          # A long flat list (e.g. By Artist, 40+ names) also needs the full,
+          # container-anchored mega panel — otherwise it pins to the narrow
+          # link and the columns spill off-screen.
+          assign is_big_flat = false
+          if has_children and is_mega == false and link.links.size > 8
+            assign is_big_flat = true
+          endif
+          assign use_mega = false
+          if is_mega or is_big_flat
+            assign use_mega = true
+          endif
           assign show_drop = false
           if has_children or is_auto
             assign show_drop = true
           endif
         -%}
-        <li class="nav-item{% if show_drop %} has-children{% endif %}{% if is_mega %} nav-item--mega{% endif %}">
+        <li class="nav-item{% if show_drop %} has-children{% endif %}{% if use_mega %} nav-item--mega{% endif %}">
           <a href="{{ link.url }}" class="nav-top" {% if link.active or link.child_active %}aria-current="page"{% endif %}>
             {{ link.title }}
             {%- if show_drop -%}

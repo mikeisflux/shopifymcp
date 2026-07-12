@@ -66,7 +66,7 @@
   .dropdown-list{display:flex;flex-direction:column}
   .dropdown-list a{padding:9px 12px;border-radius:3px;color:var(--muted);font-size:13.5px}
   .dropdown-list a:hover{background:var(--ink-2);color:var(--bone)}
-  .dropdown--mega{left:0;right:0;width:auto;transform:translateY(6px);padding:20px}
+  .dropdown--mega{left:0;right:0;width:auto;transform:translateY(6px);padding:20px;max-height:min(72vh,640px);overflow-y:auto}
   .nav-item:hover>.dropdown--mega{transform:translateY(0)}
   .mega-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px 20px}
   .mega-title{display:block;font-family:var(--f-display);font-weight:800;font-stretch:condensed;text-transform:uppercase;font-size:15px;color:var(--bone);padding:4px 0}
@@ -74,7 +74,7 @@
   .mega-subs{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
   .mega-subs a{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);border:1px solid var(--hair);border-radius:999px;padding:3px 8px}
   .mega-subs a:hover{border-color:var(--red);color:var(--bone)}
-  .mega-linklist{display:grid;grid-template-columns:repeat(4,1fr);gap:2px 16px}
+  .mega-linklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:2px 16px}
   .mega-linklist a{padding:8px 10px;border-radius:3px;color:var(--muted);font-size:12.5px;font-family:var(--f-mono);letter-spacing:.03em;text-transform:uppercase}
   .mega-linklist a:hover{background:var(--ink-2);color:var(--bone)}
   .menu-btn{display:none;background:transparent;border:0;color:var(--bone);padding:9px;cursor:pointer}
@@ -234,9 +234,9 @@
         <div><a class="mega-title" href="#hub">Granger</a><div class="mega-subs"><a href="#">Prints</a></div></div>
       </div></div>
     </li>
-    <li class="nav-item"><span class="nav-top">By Artist <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></span>
-      <div class="dropdown"><div class="dropdown-list">
-        <a href="#">Mindy Wheeler</a><a href="#">Shakamike</a><a href="#">Dustin Tyree</a><a href="#">RB White</a><a href="#">Julian Aguilera</a><a href="#">Alfret Le</a>
+    <li class="nav-item nav-item--mega"><span class="nav-top">By Artist <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></span>
+      <div class="dropdown dropdown--mega"><div class="mega-linklist">
+        <a href="#">Mindy Wheeler</a><a href="#">Shakamike</a><a href="#">Adriano Oliveira</a><a href="#">Alfret Le</a><a href="#">Andrew Thomas</a><a href="#">Anthony Apodaca</a><a href="#">Bill Maus</a><a href="#">Bruna Celeghim</a><a href="#">David Faught</a><a href="#">Dustin Tyree</a><a href="#">Eduardo Garcia</a><a href="#">Ernest McClendon</a><a href="#">Jeff Taylor</a><a href="#">Jefter Leite</a><a href="#">Julian Aguilera</a><a href="#">Keith Curtis</a><a href="#">Lao Torr</a><a href="#">LC Freitas</a><a href="#">Marcelo Rodrigues</a><a href="#">Matheus Henrique</a><a href="#">May Coutinho</a><a href="#">Mike Krome</a><a href="#">Mike Seers</a><a href="#">Monika Timar</a><a href="#">Narcelio Sousa</a><a href="#">Paul Sutton</a><a href="#">Priscila Cerqueira</a><a href="#">RB White</a><a href="#">Rivald Paiva</a><a href="#">Rodney Jacobsen</a><a href="#">Shelton Bryant</a><a href="#">Thomas Tenney</a><a href="#">Trae Da Creator</a><a href="#">Ulises Estrada</a><a href="#">Vin Dulay</a>
       </div></div>
     </li>
     <li class="nav-item nav-item--mega"><span class="nav-top">Our Art <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></span>
