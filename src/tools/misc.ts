@@ -129,6 +129,41 @@ const REMOVE_PRODUCTS_FROM_COLLECTION = /* GraphQL */ `
   }
 `;
 
+const LIST_PUBLICATIONS = /* GraphQL */ `
+  query ListPublications($first: Int!) {
+    publications(first: $first) {
+      nodes { id name }
+    }
+  }
+`;
+
+const PUBLISH_RESOURCE = /* GraphQL */ `
+  mutation PublishResource($id: ID!, $input: [PublicationInput!]!) {
+    publishablePublish(id: $id, input: $input) {
+      userErrors { field message }
+    }
+  }
+`;
+
+const UNPUBLISH_RESOURCE = /* GraphQL */ `
+  mutation UnpublishResource($id: ID!, $input: [PublicationInput!]!) {
+    publishableUnpublish(id: $id, input: $input) {
+      userErrors { field message }
+    }
+  }
+`;
+
+const COLLECTION_PRODUCT_IDS_FOR_PUBLISH = /* GraphQL */ `
+  query CollectionProductIdsForPublish($id: ID!, $first: Int!, $after: String) {
+    collection(id: $id) {
+      products(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id }
+      }
+    }
+  }
+`;
+
 /** Zod shape for a smart-collection rule set, shared by create/update. */
 const ruleSetShape = z
   .object({
@@ -334,6 +369,33 @@ export function registerReadMiscTools(server: McpServer, client: ShopifyClient):
       return {
         markdown: "```json\n" + JSON.stringify(stripGids(res.data), null, 2) + "\n```",
         structured: { data: stripGids(res.data) },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_list_publications",
+    title: "List publications (sales channels)",
+    description:
+      "List the store's publications (sales channels, e.g. Online Store, POS) with their ids. " +
+      "Use these ids with shopify_publish_resource. Requires the read_publications scope.",
+    inputSchema: {
+      first: z.number().int().min(1).max(100).default(50).describe("Max publications to return."),
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      const res = await c.request<{ publications: { nodes: Array<{ id: string; name: string }> } }>(
+        LIST_PUBLICATIONS,
+        { first: args.first },
+      );
+      const nodes = res.data.publications.nodes;
+      return {
+        markdown:
+          nodes.length === 0
+            ? "No publications found."
+            : markdownTable(["ID", "Name"], nodes.map((p) => [gidToId(p.id), p.name])),
+        structured: { publications: stripGids(nodes) },
         cost: res.cost,
       };
     },
@@ -654,6 +716,116 @@ export function registerWriteMiscTools(server: McpServer, client: ShopifyClient)
           job,
         },
         cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_publish_resource",
+    title: "Publish / unpublish to sales channels",
+    description:
+      "Publish (or unpublish) products/collections to sales channels. Target either explicit `ids` " +
+      "(of resourceType) OR every product in a `collectionId` (bulk). Publishes to ALL channels " +
+      "unless `publicationIds` is given. Idempotent — already-published resources are a no-op. " +
+      "Requires the write_publications scope. Get channel ids from shopify_list_publications.",
+    inputSchema: {
+      resourceType: z
+        .enum(["product", "collection"])
+        .default("product")
+        .describe("Type of the ids in `ids` (ignored when using collectionId, which targets products)."),
+      ids: z
+        .array(z.string())
+        .optional()
+        .describe("Resource ids to publish (numeric or GID). Use this OR collectionId."),
+      collectionId: z
+        .string()
+        .optional()
+        .describe("Bulk: publish every product in this collection. Use this OR ids."),
+      publicationIds: z
+        .array(z.string())
+        .optional()
+        .describe("Channel/publication ids to target. Omit to publish to ALL channels."),
+      action: z.enum(["publish", "unpublish"]).default("publish"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      if ((!args.ids || args.ids.length === 0) === !args.collectionId) {
+        throw new Error("Provide exactly one of `ids` or `collectionId`.");
+      }
+
+      // Resolve target publication GIDs (all channels if not specified).
+      let publicationGids: string[];
+      if (args.publicationIds && args.publicationIds.length > 0) {
+        publicationGids = args.publicationIds.map((id) => toGid("Publication", id));
+      } else {
+        const pubRes = await c.request<{ publications: { nodes: Array<{ id: string }> } }>(
+          LIST_PUBLICATIONS,
+          { first: 100 },
+        );
+        publicationGids = pubRes.data.publications.nodes.map((p) => p.id);
+        if (publicationGids.length === 0) {
+          throw new Error("No publications found on this store (is the read_publications scope granted?).");
+        }
+      }
+      const input = publicationGids.map((publicationId) => ({ publicationId }));
+
+      // Resolve target resource GIDs.
+      const resourceGids: string[] = [];
+      if (args.collectionId) {
+        let after: string | null = null;
+        do {
+          const r: {
+            data: {
+              collection: {
+                products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string }> };
+              } | null;
+            };
+          } = await c.request(COLLECTION_PRODUCT_IDS_FOR_PUBLISH, {
+            id: toGid("Collection", args.collectionId),
+            first: 100,
+            after,
+          });
+          if (!r.data.collection) throw new Error(`No collection found with id ${gidToId(args.collectionId)}.`);
+          for (const n of r.data.collection.products.nodes) resourceGids.push(n.id);
+          after = r.data.collection.products.pageInfo.hasNextPage
+            ? r.data.collection.products.pageInfo.endCursor
+            : null;
+        } while (after);
+      } else {
+        const resource = args.resourceType === "collection" ? "Collection" : "Product";
+        for (const id of args.ids!) resourceGids.push(toGid(resource, id));
+      }
+
+      const mutation = args.action === "publish" ? PUBLISH_RESOURCE : UNPUBLISH_RESOURCE;
+      let succeeded = 0;
+      const errors: string[] = [];
+      for (const id of resourceGids) {
+        const res = await c.request<{
+          publishablePublish?: { userErrors: Array<{ field: string[] | null; message: string }> };
+          publishableUnpublish?: { userErrors: Array<{ field: string[] | null; message: string }> };
+        }>(mutation, { id, input });
+        const ue = (res.data.publishablePublish ?? res.data.publishableUnpublish)?.userErrors ?? [];
+        if (ue.length > 0) errors.push(`${gidToId(id)}: ${ue.map((e) => e.message).join("; ")}`);
+        else succeeded++;
+      }
+
+      const verb = args.action === "publish" ? "Published" : "Unpublished";
+      const errBlock =
+        errors.length > 0
+          ? `\n\n**${errors.length} failed:**\n` + errors.slice(0, 20).map((e) => `- ${e}`).join("\n")
+          : "";
+      return {
+        markdown:
+          `${verb} ${succeeded} resource(s) to/from ${publicationGids.length} channel(s).` + errBlock,
+        structured: {
+          action: args.action,
+          resourcesProcessed: resourceGids.length,
+          succeeded,
+          channelCount: publicationGids.length,
+          errorCount: errors.length,
+          errors: errors.slice(0, 50),
+        },
+        cost: undefined,
       };
     },
   });
