@@ -465,29 +465,98 @@ export function registerWriteMiscTools(server: McpServer, client: ShopifyClient)
   registerTool(server, client, {
     name: "shopify_tag_resource",
     title: "Add or remove tags",
-    description: "Add or remove tags on a product, order, customer, or draft order.",
+    description:
+      "Add or remove tags on a single resource (product/order/customer/draft order) OR, in bulk, on " +
+      "every product in a collection. Provide exactly one of `id` (single) or `collectionId` (bulk).",
     inputSchema: {
       resourceType: z
         .enum(["product", "order", "customer", "draft_order"])
-        .describe("The kind of resource to tag."),
-      id: z.string().describe("Resource id (numeric or GID)."),
+        .default("product")
+        .describe("The kind of resource to tag (ignored for collectionId, which targets products)."),
+      id: z.string().optional().describe("Single-resource mode: the resource id (numeric or GID)."),
+      collectionId: z
+        .string()
+        .optional()
+        .describe("Bulk mode: tag every product in this collection (numeric or GID)."),
       tags: z.array(z.string()).min(1).describe("Tags to add or remove."),
       action: z.enum(["add", "remove"]).default("add"),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     handler: async (args, c) => {
-      const gid = toGid(RESOURCE_GID[args.resourceType]!, args.id);
-      const res = await c.request<{
-        tagsAdd?: { node: { id: string } | null; userErrors: Array<{ field: string[] | null; message: string }> };
-        tagsRemove?: { node: { id: string } | null; userErrors: Array<{ field: string[] | null; message: string }> };
-      }>(args.action === "add" ? TAGS_ADD : TAGS_REMOVE, { id: gid, tags: args.tags });
+      if ((!args.id && !args.collectionId) || (args.id && args.collectionId)) {
+        throw new Error("Provide exactly one of `id` or `collectionId`.");
+      }
 
-      const payload = args.action === "add" ? res.data.tagsAdd : res.data.tagsRemove;
-      assertNoUserErrors(payload?.userErrors);
+      const mutation = args.action === "add" ? TAGS_ADD : TAGS_REMOVE;
+      const applyTo = async (gid: string): Promise<string[]> => {
+        const res = await c.request<{
+          tagsAdd?: { userErrors: Array<{ field: string[] | null; message: string }> };
+          tagsRemove?: { userErrors: Array<{ field: string[] | null; message: string }> };
+        }>(mutation, { id: gid, tags: args.tags });
+        return (res.data.tagsAdd ?? res.data.tagsRemove)?.userErrors?.map((e) => e.message) ?? [];
+      };
+
+      // Single-resource mode.
+      if (args.id) {
+        const gid = toGid(RESOURCE_GID[args.resourceType]!, args.id);
+        const errs = await applyTo(gid);
+        if (errs.length > 0) throw new Error(errs.join("; "));
+        return {
+          markdown: `${args.action === "add" ? "Added" : "Removed"} tag(s) [${args.tags.join(", ")}] ${args.action === "add" ? "to" : "from"} ${args.resourceType} ${gidToId(args.id)}.`,
+          structured: { id: gidToId(gid), tags: args.tags, action: args.action },
+          cost: undefined,
+        };
+      }
+
+      // Bulk mode: every product in the collection.
+      const productGids: string[] = [];
+      let after: string | null = null;
+      do {
+        const r: {
+          data: {
+            collection: {
+              products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string }> };
+            } | null;
+          };
+        } = await c.request(COLLECTION_PRODUCT_IDS_FOR_PUBLISH, {
+          id: toGid("Collection", args.collectionId!),
+          first: 100,
+          after,
+        });
+        if (!r.data.collection) throw new Error(`No collection found with id ${gidToId(args.collectionId!)}.`);
+        for (const n of r.data.collection.products.nodes) productGids.push(n.id);
+        after = r.data.collection.products.pageInfo.hasNextPage
+          ? r.data.collection.products.pageInfo.endCursor
+          : null;
+      } while (after);
+
+      let succeeded = 0;
+      const errors: string[] = [];
+      for (const gid of productGids) {
+        const errs = await applyTo(gid);
+        if (errs.length > 0) errors.push(`${gidToId(gid)}: ${errs.join("; ")}`);
+        else succeeded++;
+      }
+
+      const errBlock =
+        errors.length > 0
+          ? `\n\n**${errors.length} failed:**\n` + errors.slice(0, 20).map((e) => `- ${e}`).join("\n")
+          : "";
       return {
-        markdown: `${args.action === "add" ? "Added" : "Removed"} tag(s) [${args.tags.join(", ")}] ${args.action === "add" ? "to" : "from"} ${args.resourceType} ${gidToId(args.id)}.`,
-        structured: { id: gidToId(gid), tags: args.tags, action: args.action },
-        cost: res.cost,
+        markdown:
+          `${args.action === "add" ? "Added" : "Removed"} tag(s) [${args.tags.join(", ")}] ` +
+          `${args.action === "add" ? "to" : "from"} ${succeeded} product(s) in collection ${gidToId(args.collectionId!)}.` +
+          errBlock,
+        structured: {
+          collectionId: gidToId(args.collectionId!),
+          tags: args.tags,
+          action: args.action,
+          productsProcessed: productGids.length,
+          succeeded,
+          errorCount: errors.length,
+          errors: errors.slice(0, 50),
+        },
+        cost: undefined,
       };
     },
   });

@@ -277,7 +277,7 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_create_draft_order` | Line items by variant id or SKU, customer, shipping, discount. |
 | `shopify_complete_draft_order` | Turn a draft order into a real order. |
 | `shopify_create_discount_code` | Basic percentage/fixed code discount. |
-| `shopify_tag_resource` | Add/remove tags on a product, order, customer, or draft order. |
+| `shopify_tag_resource` | Add/remove tags on a single product/order/customer/draft order, or in bulk on every product in a collection. |
 | `shopify_create_collection` | Create a manual collection, or a smart/automated one via a rule set. |
 | `shopify_update_collection` | Update a collection's title, description, handle, sort order, SEO, or smart rules. |
 | `shopify_add_products_to_collection` | Add products to a manual collection. |
