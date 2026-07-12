@@ -77,7 +77,31 @@
   .mega-linklist{display:grid;grid-template-columns:repeat(4,1fr);gap:2px 16px}
   .mega-linklist a{padding:8px 10px;border-radius:3px;color:var(--muted);font-size:12.5px;font-family:var(--f-mono);letter-spacing:.03em;text-transform:uppercase}
   .mega-linklist a:hover{background:var(--ink-2);color:var(--bone)}
-  @media(max-width:1024px){.search-inline{display:none}.nav-bar{display:none}}
+  .menu-btn{display:none;background:transparent;border:0;color:var(--bone);padding:9px;cursor:pointer}
+  .menu-btn svg{width:22px;height:22px}
+  .sub-toggle{display:none}
+  .nav-close{display:none}
+  body.nav-locked{overflow:hidden}
+  @media(max-width:1024px){
+    .search-inline{display:none}
+    .site-header{backdrop-filter:none;background:var(--ink)}
+    .header-bar{grid-template-columns:auto auto 1fr}
+    .menu-btn{display:inline-flex;order:-1}
+    .nav-bar{position:fixed;inset:0 0 0 auto;width:min(88vw,380px);z-index:140;background:var(--ink-1);border-left:1px solid var(--hair);border-top:0;transform:translateX(100%);transition:transform .24s ease;overflow-y:auto;padding:70px 0 30px}
+    .nav-bar.is-open{transform:translateX(0)}
+    .nav-list{flex-direction:column;gap:0}
+    .nav-item{position:relative;border-bottom:1px solid var(--hair)}
+    .nav-top{height:auto;padding:15px 20px;font-size:15px;width:100%;justify-content:space-between}
+    .nav-top::after{display:none}
+    .sub-toggle{display:inline-flex;background:transparent;border:0;color:var(--muted);padding:12px 20px;position:absolute;right:0;top:0;cursor:pointer}
+    .sub-toggle svg{width:16px;height:16px;transition:transform .18s}
+    .nav-item.is-open .sub-toggle svg{transform:rotate(180deg)}
+    .dropdown,.dropdown--mega{position:static;opacity:1;visibility:visible;transform:none !important;width:auto;box-shadow:none;border:0;border-top:1px solid var(--hair);border-radius:0;background:var(--ink);display:none;padding:6px 12px 14px}
+    .nav-item.is-open>.dropdown,.nav-item.is-open>.dropdown--mega{display:block}
+    .mega-grid,.mega-linklist{grid-template-columns:1fr 1fr;gap:4px 14px}
+    .nav-close{display:inline-flex;background:transparent;border:0;color:var(--bone);padding:8px;position:absolute;top:16px;right:16px;cursor:pointer}
+    .nav-close svg{width:22px;height:22px}
+  }
   /* title hub demo */
   .demo-label{background:#0b0e08;border-block:1px solid var(--hair);text-align:center;font-family:var(--f-mono);font-size:11px;color:var(--gold);padding:8px;letter-spacing:.14em;text-transform:uppercase}
   .hub{position:relative;overflow:hidden;border-bottom:1px solid var(--hair)}
@@ -181,6 +205,7 @@
 
 <header class="site-header">
   <div class="wrap header-bar">
+    <button class="menu-btn" data-menu-toggle aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
     <a class="logo" href="#">DIVINITY<b>.</b></a>
     <form class="search-inline" onsubmit="return false">
       <input type="search" placeholder="What are you looking for?">
@@ -191,7 +216,7 @@
       <a class="act-link" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg></a>
     </div>
   </div>
-  <nav class="nav-bar"><ul class="nav-list wrap">
+  <nav class="nav-bar" id="SiteNav"><button class="nav-close" data-menu-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button><ul class="nav-list wrap">
     <li class="nav-item"><a class="nav-top" href="#">Home</a></li>
     <li class="nav-item nav-item--mega"><span class="nav-top">Mature Titles <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></span>
       <div class="dropdown dropdown--mega"><div class="mega-grid">
@@ -441,5 +466,24 @@
   </div>
   <div class="wrap footer-bar"><span>© 2026 Divinity Comics. All covers © their respective artists.</span><span>Ships worldwide · USD</span></div>
 </footer>
+<script>
+(function(){
+  var nav=document.getElementById('SiteNav');
+  var toggle=document.querySelector('[data-menu-toggle]');
+  if(toggle&&nav){toggle.addEventListener('click',function(){var o=nav.classList.toggle('is-open');document.body.classList.toggle('nav-locked',o);});}
+  document.addEventListener('click',function(e){
+    if(e.target.closest('[data-menu-close]')){nav.classList.remove('is-open');document.body.classList.remove('nav-locked');}
+    var sub=e.target.closest('[data-submenu]');
+    if(sub){e.preventDefault();var it=sub.closest('.nav-item');if(it)it.classList.toggle('is-open');}
+  });
+  document.querySelectorAll('.nav-item').forEach(function(it){
+    if(it.querySelector('.dropdown')&&!it.querySelector('[data-submenu]')){
+      var b=document.createElement('button');b.className='sub-toggle';b.setAttribute('data-submenu','');b.setAttribute('aria-label','Expand');
+      b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>';
+      it.insertBefore(b,it.children[1]||null);
+    }
+  });
+})();
+</script>
 </body>
 </html>

@@ -103,6 +103,10 @@
 
   @media (max-width: 1024px) {
     .search-inline { display: none; }
+    /* backdrop-filter creates a containing block that would trap the fixed
+       nav panel inside the header — drop it on mobile so the panel is
+       positioned against the viewport (full-height slide-in). */
+    .site-header { backdrop-filter: none; background: var(--ink); }
     .header-bar { grid-template-columns: auto auto 1fr; }
     .menu-btn { display: inline-flex; order: -1; }
     .nav-bar {
@@ -128,6 +132,12 @@
     .nav-close { position: absolute; top: 16px; right: 16px; }
   }
   body.nav-locked { overflow: hidden; }
+  @media (max-width: 600px) {
+    .act-label { display: none; }
+    .logo { font-size: 21px; }
+    .header-bar { gap: 12px; }
+    .act-link { padding: 8px 7px; }
+  }
   .nav-close { display: none; }
   @media (max-width: 1024px) { .nav-close { display: inline-flex; background: transparent; border: 0; color: var(--bone); padding: 8px; } .nav-close svg { width: 22px; height: 22px; } }
 

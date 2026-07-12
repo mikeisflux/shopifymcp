@@ -85,6 +85,8 @@ button { font-family: inherit; cursor: pointer; }
   text-wrap: balance;
   margin: 0;
 }
+/* Never let a long title force a sideways scroll on a narrow phone */
+h1, h2, h3 { overflow-wrap: break-word; }
 .eyebrow {
   font-family: var(--f-mono);
   text-transform: uppercase;
