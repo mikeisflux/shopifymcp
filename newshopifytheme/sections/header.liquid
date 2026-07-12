@@ -205,9 +205,9 @@
             assign tl = link.title | downcase | strip
             if tl == 'merch' or tl == 'merchandise'
               assign fmt = '-merch'
-            elsif tl == 'prints' or tl == 'print'
+            elsif tl == 'prints' or tl == 'print' or tl == 'art' or tl == 'our art' or tl == 'original art' or tl == 'art prints' or tl == 'artwork' or tl == 'arts' or tl == 'art & prints' or tl == 'prints & art'
               assign fmt = '-print'
-            elsif tl == 'digital' or tl == 'digitals'
+            elsif tl == 'digital' or tl == 'digitals' or tl == 'downloads' or tl == 'digital downloads'
               assign fmt = '-digital'
             endif
           endunless
