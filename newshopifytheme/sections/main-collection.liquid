@@ -1,4 +1,5 @@
-{%- paginate collection.products by 24 -%}
+{%- comment -%} 50 is Shopify's max per page — an issue never has more covers than that, so all covers show on one page with no pagination. {%- endcomment -%}
+{%- paginate collection.products by 50 -%}
 <style>
   .coll-head { padding-block: clamp(24px, 4vw, 44px) 0; }
   .coll-head .eyebrow { margin-bottom: .7rem; }
