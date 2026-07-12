@@ -27,6 +27,7 @@ import { registerReadMiscTools, registerWriteMiscTools } from "./tools/misc.js";
 import { registerStoreOpsReadTools, registerStoreOpsWriteTools } from "./tools/store-ops.js";
 import { registerCommerceExtraReadTools, registerCommerceExtraWriteTools } from "./tools/commerce-extra.js";
 import { registerContentReadTools, registerContentWriteTools } from "./tools/content.js";
+import { registerDeleteTools } from "./tools/deletes.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
@@ -64,6 +65,7 @@ function buildServer(config: Config, client: ShopifyClient): McpServer {
     registerStoreOpsWriteTools(server, client);
     registerCommerceExtraWriteTools(server, client);
     registerContentWriteTools(server, client);
+    registerDeleteTools(server, client);
   }
 
   return server;
