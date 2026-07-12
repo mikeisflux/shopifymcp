@@ -74,6 +74,9 @@
   .mega-subs{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
   .mega-subs a{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);border:1px solid var(--hair);border-radius:999px;padding:3px 8px}
   .mega-subs a:hover{border-color:var(--red);color:var(--bone)}
+  .mega-linklist{display:grid;grid-template-columns:repeat(4,1fr);gap:2px 16px}
+  .mega-linklist a{padding:8px 10px;border-radius:3px;color:var(--muted);font-size:12.5px;font-family:var(--f-mono);letter-spacing:.03em;text-transform:uppercase}
+  .mega-linklist a:hover{background:var(--ink-2);color:var(--bone)}
   @media(max-width:1024px){.search-inline{display:none}.nav-bar{display:none}}
   /* title hub demo */
   .demo-label{background:#0b0e08;border-block:1px solid var(--hair);text-align:center;font-family:var(--f-mono);font-size:11px;color:var(--gold);padding:8px;letter-spacing:.14em;text-transform:uppercase}
@@ -215,7 +218,11 @@
       <div class="dropdown"><div class="dropdown-list"><a href="#">Trip Story</a><a href="#">Calendars</a></div></div>
     </li>
     <li class="nav-item"><a class="nav-top" href="#">Calendars</a></li>
-    <li class="nav-item"><a class="nav-top" href="#">Merch</a></li>
+    <li class="nav-item nav-item--mega"><span class="nav-top">Merch <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></span>
+      <div class="dropdown dropdown--mega"><div class="mega-linklist">
+        <a href="#">Batpool #1</a><a href="#">Boobs #1</a><a href="#">Boobs #2</a><a href="#">Boobs #3</a><a href="#">Dead Sexy #1</a><a href="#">Dead Sexy #2</a><a href="#">G-Busters #1</a><a href="#">G-Busters #2</a><a href="#">Granger #1</a><a href="#">Lady Darth #1</a><a href="#">MMPR #1</a><a href="#">The Mandawhorian #1</a><a href="#">Puppet #1</a><a href="#">Rainbow The Brute #1</a><a href="#">Star Whores #1</a><a href="#">Star Whores #2</a><a href="#">Surrender the Booty #1</a><a href="#">Surrender the Booty #2</a><a href="#">Sweeney Todd #1</a><a href="#">X-FEM #1</a>
+      </div></div>
+    </li>
     <li class="nav-item"><a class="nav-top" href="#">Original Art</a></li>
     <li class="nav-item"><a class="nav-top" href="#">Wholesale</a></li>
     <li class="nav-item"><span class="nav-top">Resources <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></span>

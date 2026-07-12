@@ -95,6 +95,10 @@
   .mega-subs a { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); border: 1px solid var(--hair); border-radius: 999px; padding: 3px 8px; transition: all .12s; }
   .mega-subs a:hover { border-color: var(--red); color: var(--bone); }
 
+  .mega-linklist { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px 16px; }
+  .mega-linklist a { padding: 8px 10px; border-radius: 3px; color: var(--muted); font-size: 12.5px; font-family: var(--f-mono); letter-spacing: .03em; text-transform: uppercase; transition: background .12s, color .12s; }
+  .mega-linklist a:hover { background: var(--ink-2); color: var(--bone); }
+
   .sub-toggle { display: none; }
 
   @media (max-width: 1024px) {
@@ -120,7 +124,7 @@
       display: none; padding: 6px 12px 14px;
     }
     .nav-item.is-open > .dropdown, .nav-item.is-open > .dropdown--mega { display: block; }
-    .mega-grid { grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+    .mega-grid, .mega-linklist { grid-template-columns: 1fr 1fr; gap: 4px 14px; }
     .nav-close { position: absolute; top: 16px; right: 16px; }
   }
   body.nav-locked { overflow: hidden; }
@@ -183,7 +187,9 @@
       {%- for link in menu.links -%}
         {%- liquid
           assign is_mega = false
+          assign has_children = false
           if link.links != blank
+            assign has_children = true
             for child in link.links
               if child.links != blank
                 assign is_mega = true
@@ -191,19 +197,52 @@
               endif
             endfor
           endif
+
+          # Auto-populate a by-title dropdown for a format menu item that has
+          # no children of its own (Merch / Prints / Digital).
+          assign fmt = ''
+          unless has_children
+            assign tl = link.title | downcase | strip
+            if tl == 'merch' or tl == 'merchandise'
+              assign fmt = '-merch'
+            elsif tl == 'prints' or tl == 'print'
+              assign fmt = '-print'
+            elsif tl == 'digital' or tl == 'digitals'
+              assign fmt = '-digital'
+            endif
+          endunless
+          assign is_auto = false
+          if fmt != ''
+            assign is_auto = true
+            assign is_mega = true
+          endif
+          assign show_drop = false
+          if has_children or is_auto
+            assign show_drop = true
+          endif
         -%}
-        <li class="nav-item{% if link.links != blank %} has-children{% endif %}{% if is_mega %} nav-item--mega{% endif %}">
+        <li class="nav-item{% if show_drop %} has-children{% endif %}{% if is_mega %} nav-item--mega{% endif %}">
           <a href="{{ link.url }}" class="nav-top" {% if link.active or link.child_active %}aria-current="page"{% endif %}>
             {{ link.title }}
-            {%- if link.links != blank -%}
+            {%- if show_drop -%}
               <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
             {%- endif -%}
           </a>
-          {%- if link.links != blank -%}
+          {%- if show_drop -%}
             <button class="sub-toggle" data-submenu aria-label="Expand {{ link.title }}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
             </button>
-            {%- if is_mega -%}
+            {%- if is_auto -%}
+              <div class="dropdown dropdown--mega">
+                <div class="mega-linklist">
+                  {%- for coll in collections -%}
+                    {%- if coll.handle contains fmt and coll.all_products_count > 0 -%}
+                      <a href="{{ coll.url }}">{{ coll.title | remove: ' Merch' | remove: ' Prints' | remove: ' Print' | remove: ' Digitals' | remove: ' Digital' | remove: ' merch' }}</a>
+                    {%- endif -%}
+                  {%- endfor -%}
+                </div>
+              </div>
+            {%- elsif is_mega -%}
               <div class="dropdown dropdown--mega">
                 <div class="mega-grid">
                   {%- for child in link.links -%}
@@ -219,8 +258,8 @@
                 </div>
               </div>
             {%- else -%}
-              <div class="dropdown">
-                <div class="dropdown-list">
+              <div class="dropdown{% if link.links.size > 8 %} dropdown--mega{% endif %}">
+                <div class="{% if link.links.size > 8 %}mega-linklist{% else %}dropdown-list{% endif %}">
                   {%- for child in link.links -%}<a href="{{ child.url }}">{{ child.title }}</a>{%- endfor -%}
                 </div>
               </div>
