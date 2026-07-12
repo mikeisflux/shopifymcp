@@ -20,6 +20,29 @@
     assign is_new = true
   endif
   assign code = product.selected_or_first_available_variant.sku
+
+  # Price range from the actually-priced variants. Ignoring $0 variants means a
+  # stray free/unpriced cover no longer drags the whole product down to "$0" —
+  # a book with covers at $5, $25 and $35 shows "$5–$35".
+  assign vmin = 0
+  assign vmax = 0
+  assign priced = false
+  for v in product.variants
+    if v.price > 0
+      if priced
+        if v.price < vmin
+          assign vmin = v.price
+        endif
+        if v.price > vmax
+          assign vmax = v.price
+        endif
+      else
+        assign vmin = v.price
+        assign vmax = v.price
+        assign priced = true
+      endif
+    endif
+  endfor
 -%}
 <a class="card" href="{{ product.url }}" data-tags="{{ product.type | handle }} {{ product.tags | join: ' ' | downcase }}">
   <div class="card__media">
@@ -44,8 +67,12 @@
     <h3 class="card__title">{{ product.title }}</h3>
     <div class="card__meta">
       <span class="card__price">
-        {%- if on_sale -%}<span class="was">{{ product.compare_at_price | money }}</span>{%- endif -%}
-        {%- if product.price_varies -%}{{ 'products.product.from_price' | t: price: product.price_min | money }}{%- else -%}{{ product.price | money }}{%- endif -%}
+        {%- if priced -%}
+          {%- if on_sale and product.compare_at_price > vmin -%}<span class="was">{{ product.compare_at_price | money }}</span>{%- endif -%}
+          {%- if vmin == vmax -%}{{ vmin | money }}{%- else -%}{{ vmin | money }}–{{ vmax | money }}{%- endif -%}
+        {%- else -%}
+          {{ product.price | money }}
+        {%- endif -%}
       </span>
       {%- if product.variants.size > 1 -%}
         <span class="card__variants">{{ product.variants.size }} covers</span>

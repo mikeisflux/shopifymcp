@@ -5,6 +5,27 @@
   if current.compare_at_price > current.price
     assign on_sale = true
   endif
+
+  # Price range across the actually-priced variants (ignore $0 covers)
+  assign vmin = 0
+  assign vmax = 0
+  assign priced = false
+  for v in product.variants
+    if v.price > 0
+      if priced
+        if v.price < vmin
+          assign vmin = v.price
+        endif
+        if v.price > vmax
+          assign vmax = v.price
+        endif
+      else
+        assign vmin = v.price
+        assign vmax = v.price
+        assign priced = true
+      endif
+    endif
+  endfor
 -%}
 <style>
   .pdp { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(24px, 4vw, 56px); padding-block: clamp(28px, 4vw, 48px); align-items: start; }
@@ -90,7 +111,12 @@
 
     {%- form 'product', product, id: 'ProductForm', novalidate: 'novalidate' -%}
       <div class="pdp-price" id="PdpPrice">
-        <span class="now" data-price>{{ current.price | money }}</span>
+        <span class="now" data-price>
+          {%- if current.price > 0 -%}{{ current.price | money }}
+          {%- elsif priced and vmin != vmax -%}{{ vmin | money }}&ndash;{{ vmax | money }}
+          {%- elsif priced -%}{{ vmin | money }}
+          {%- else -%}{{ current.price | money }}{%- endif -%}
+        </span>
         {%- if on_sale -%}
           <span class="was" data-compare>{{ current.compare_at_price | money }}</span>
           <span class="save">Save {{ current.compare_at_price | minus: current.price | times: 100.0 | divided_by: current.compare_at_price | round }}%</span>
