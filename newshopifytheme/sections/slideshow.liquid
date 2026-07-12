@@ -1,0 +1,179 @@
+{%- comment -%}
+  Rotating hero slideshow — one slide per title. Each slide can use an
+  uploaded image OR auto-pull art from a chosen collection's first product,
+  so it looks right immediately without uploading anything.
+{%- endcomment -%}
+<style>
+  .slideshow-{{ section.id }} { position: relative; overflow: hidden; border-bottom: 1px solid var(--hair); background: var(--ink); }
+  .slideshow-{{ section.id }} .track { display: flex; transition: transform .6s cubic-bezier(.5,.05,.2,1); }
+  .slideshow-{{ section.id }} .slide { position: relative; min-width: 100%; overflow: hidden; }
+  .slide-bg { position: absolute; inset: 0; z-index: 0; }
+  .slide-bg img { width: 100%; height: 100%; object-fit: cover; opacity: .22; filter: blur(2px) saturate(1.1); transform: scale(1.08); }
+  .slide-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--ink) 8%, color-mix(in srgb, var(--ink) 55%, transparent) 55%, transparent), linear-gradient(to top, var(--ink), transparent 60%); }
+  .slide-inner { position: relative; z-index: 1; display: grid; grid-template-columns: 1.05fr .95fr; align-items: center; gap: clamp(24px, 5vw, 56px); min-height: clamp(380px, 52vw, 560px); padding-block: clamp(30px, 4vw, 50px); }
+  .slide-copy .eyebrow { margin-bottom: 1rem; }
+  .slide-title { font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; font-size: clamp(42px, 7.5vw, 96px); line-height: .86; letter-spacing: -.015em; margin: 0; text-wrap: balance; }
+  .slide-copy p { color: var(--muted); font-size: clamp(15px, 1.4vw, 17px); max-width: 46ch; margin: 16px 0 26px; }
+  .slide-cta { display: flex; flex-wrap: wrap; gap: 12px; }
+  .slide-art { position: relative; display: grid; place-items: center; height: 100%; }
+  .slide-art img { max-height: clamp(300px, 40vw, 460px); width: auto; border-radius: var(--radius); border: 1px solid var(--hair); box-shadow: 0 30px 60px -28px rgba(0,0,0,.95); }
+  .slide-art .sticker { position: absolute; top: 6%; right: 8%; background: var(--gold); color: #1a1206; font-family: var(--f-mono); font-weight: 700; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 6px 10px; border-radius: 3px; transform: rotate(6deg); box-shadow: 0 8px 20px -8px rgba(0,0,0,.8); }
+
+  .ss-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 3; width: 46px; height: 46px; border-radius: 999px; background: color-mix(in srgb, var(--ink-1) 80%, transparent); border: 1px solid var(--hair); color: var(--bone); display: inline-flex; align-items: center; justify-content: center; backdrop-filter: blur(6px); transition: background .15s, border-color .15s; }
+  .ss-arrow:hover { background: var(--ink-1); border-color: var(--red); color: var(--red); }
+  .ss-arrow svg { width: 20px; height: 20px; }
+  .ss-prev { left: 14px; } .ss-next { right: 14px; }
+  .ss-dots { position: absolute; z-index: 3; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; }
+  .ss-dots button { width: 9px; height: 9px; border-radius: 999px; border: 0; background: color-mix(in srgb, var(--bone) 35%, transparent); transition: background .18s, width .18s; padding: 0; }
+  .ss-dots button[aria-current="true"] { background: var(--red); width: 24px; }
+  @media (max-width: 860px) {
+    .slide-inner { grid-template-columns: 1fr; text-align: center; min-height: 0; }
+    .slide-copy .eyebrow { justify-content: center; }
+    .slide-cta { justify-content: center; }
+    .slide-art { order: -1; margin-top: 10px; }
+    .slide-art img { max-height: clamp(240px, 56vw, 340px); }
+    .slide-bg::after { background: linear-gradient(to top, var(--ink) 12%, color-mix(in srgb, var(--ink) 60%, transparent)); }
+    .ss-arrow { display: none; }
+  }
+</style>
+
+<section class="slideshow-{{ section.id }}" data-slideshow data-autoplay="{{ section.settings.autoplay_speed | times: 1000 }}" aria-roledescription="carousel" aria-label="{{ section.settings.title | default: 'Featured titles' | escape }}">
+  <div class="track" data-track>
+    {%- for block in section.blocks -%}
+      {%- liquid
+        assign coll = collections[block.settings.collection]
+        assign art = block.settings.image
+        if art == blank and coll.products.first.featured_media != blank
+          assign art = coll.products.first.featured_media
+        endif
+        assign link = block.settings.cta_link
+        if link == blank and coll != empty
+          assign link = coll.url
+        endif
+      -%}
+      <div class="slide" role="group" aria-roledescription="slide" aria-label="{{ forloop.index }} of {{ forloop.length }}" {{ block.shopify_attributes }}>
+        {%- if art != blank -%}<div class="slide-bg"><img src="{{ art | image_url: width: 1800 }}" alt="" loading="{% if forloop.first %}eager{% else %}lazy{% endif %}"></div>{%- endif -%}
+        <div class="wrap slide-inner">
+          <div class="slide-copy">
+            {%- if block.settings.eyebrow != blank -%}<span class="eyebrow">{{ block.settings.eyebrow }}</span>{%- endif -%}
+            <h2 class="slide-title">{{ block.settings.heading | default: coll.title }}</h2>
+            {%- if block.settings.text != blank -%}<p>{{ block.settings.text }}</p>{%- endif -%}
+            <div class="slide-cta">
+              {%- if block.settings.cta_label != blank -%}<a class="btn btn--primary" href="{{ link | default: '#' }}">{{ block.settings.cta_label }}</a>{%- endif -%}
+              {%- if block.settings.cta2_label != blank and block.settings.cta2_link != blank -%}<a class="btn btn--ghost" href="{{ block.settings.cta2_link }}">{{ block.settings.cta2_label }}</a>{%- endif -%}
+            </div>
+          </div>
+          {%- if art != blank -%}
+            <div class="slide-art">
+              {%- if block.settings.sticker != blank -%}<span class="sticker">{{ block.settings.sticker }}</span>{%- endif -%}
+              <img src="{{ art | image_url: width: 700 }}" alt="{{ block.settings.heading | default: coll.title | escape }}" loading="{% if forloop.first %}eager{% else %}lazy{% endif %}">
+            </div>
+          {%- endif -%}
+        </div>
+      </div>
+    {%- endfor -%}
+  </div>
+
+  {%- if section.blocks.size > 1 -%}
+    {%- if section.settings.show_arrows -%}
+      <button class="ss-arrow ss-prev" data-ss-prev aria-label="Previous slide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <button class="ss-arrow ss-next" data-ss-next aria-label="Next slide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
+    {%- endif -%}
+    {%- if section.settings.show_dots -%}
+      <div class="ss-dots" data-ss-dots role="tablist" aria-label="Slides">
+        {%- for block in section.blocks -%}
+          <button type="button" data-ss-dot="{{ forloop.index0 }}" aria-label="Go to slide {{ forloop.index }}" {% if forloop.first %}aria-current="true"{% endif %}></button>
+        {%- endfor -%}
+      </div>
+    {%- endif -%}
+  {%- endif -%}
+</section>
+
+<script>
+  (function () {
+    var root = document.currentScript.previousElementSibling;
+    if (!root || root.dataset.ssInit) return;
+    root.dataset.ssInit = '1';
+    var track = root.querySelector('[data-track]');
+    var slides = track ? track.children.length : 0;
+    if (slides < 2) return;
+    var dots = Array.prototype.slice.call(root.querySelectorAll('[data-ss-dot]'));
+    var i = 0, timer = null;
+    var delay = parseInt(root.dataset.autoplay, 10) || 0;
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function go(n) {
+      i = (n + slides) % slides;
+      track.style.transform = 'translateX(' + (-i * 100) + '%)';
+      dots.forEach(function (d, x) { d.setAttribute('aria-current', x === i ? 'true' : 'false'); });
+    }
+    function next() { go(i + 1); }
+    function prev() { go(i - 1); }
+    function play() { if (delay && !reduce) { stop(); timer = setInterval(next, delay); } }
+    function stop() { if (timer) { clearInterval(timer); timer = null; } }
+
+    root.addEventListener('click', function (e) {
+      if (e.target.closest('[data-ss-next]')) { next(); play(); }
+      else if (e.target.closest('[data-ss-prev]')) { prev(); play(); }
+      else { var dot = e.target.closest('[data-ss-dot]'); if (dot) { go(parseInt(dot.dataset.ssDot, 10)); play(); } }
+    });
+    root.addEventListener('mouseenter', stop);
+    root.addEventListener('mouseleave', play);
+    root.addEventListener('focusin', stop);
+    root.addEventListener('focusout', play);
+
+    // Touch / swipe
+    var x0 = null;
+    root.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; stop(); }, { passive: true });
+    root.addEventListener('touchend', function (e) {
+      if (x0 === null) return;
+      var dx = e.changedTouches[0].clientX - x0;
+      if (Math.abs(dx) > 40) { dx < 0 ? next() : prev(); }
+      x0 = null; play();
+    });
+
+    go(0); play();
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Title slideshow",
+  "settings": [
+    { "type": "text", "id": "title", "label": "Section label (accessibility)", "default": "Featured titles" },
+    { "type": "range", "id": "autoplay_speed", "label": "Autoplay speed", "min": 0, "max": 12, "step": 1, "unit": "s", "default": 6, "info": "0 = no autoplay." },
+    { "type": "checkbox", "id": "show_arrows", "label": "Show arrows", "default": true },
+    { "type": "checkbox", "id": "show_dots", "label": "Show dots", "default": true }
+  ],
+  "blocks": [
+    {
+      "type": "slide",
+      "name": "Title slide",
+      "settings": [
+        { "type": "image_picker", "id": "image", "label": "Art image (optional — auto-uses the collection's first cover)" },
+        { "type": "collection", "id": "collection", "label": "Collection (for art + button link)" },
+        { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "New drop" },
+        { "type": "text", "id": "heading", "label": "Heading (defaults to collection title)" },
+        { "type": "textarea", "id": "text", "label": "Text" },
+        { "type": "text", "id": "sticker", "label": "Corner sticker", "default": "Out now" },
+        { "type": "text", "id": "cta_label", "label": "Button label", "default": "Shop now" },
+        { "type": "url", "id": "cta_link", "label": "Button link (defaults to collection)" },
+        { "type": "text", "id": "cta2_label", "label": "Second button label" },
+        { "type": "url", "id": "cta2_link", "label": "Second button link" }
+      ]
+    }
+  ],
+  "max_blocks": 10,
+  "presets": [
+    {
+      "name": "Title slideshow",
+      "blocks": [
+        { "type": "slide", "settings": { "collection": "dead-sexy-2-books", "eyebrow": "New drop · Out now", "heading": "Dead Sexy #2", "text": "Wheeler's cult horror pin-up book — 18 variant covers, prints and collectibles." } },
+        { "type": "slide", "settings": { "collection": "surrender-the-booty-1-prints", "eyebrow": "Now shipping", "heading": "Surrender the Booty", "text": "Pirates, plunder and pin-ups. Grab the print run before it's gone." } },
+        { "type": "slide", "settings": { "collection": "the-mandawhorian-1-prints", "eyebrow": "Fan favourite", "heading": "The Mandawhorian", "text": "Bounty-hunter parody prints, metal cards and art sets." } },
+        { "type": "slide", "settings": { "collection": "g-busters-2-prints", "eyebrow": "On sale now", "heading": "G-Busters #2", "text": "Who you gonna call? Movie-poster prints and metal trading cards." } }
+      ]
+    }
+  ]
+}
+{% endschema %}

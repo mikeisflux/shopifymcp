@@ -223,26 +223,66 @@
   </ul></nav>
 </header>
 
-<!-- HERO -->
-<section class="hero"><div class="wrap hero-grid">
-  <div>
-    <span class="eyebrow">New drop · Dead Sexy #2 out now</span>
-    <h1 class="hero-title">Variant covers, not vanilla.</h1>
-    <p class="lede">Independent comics with a shelf full of covers, prints, digitals and collectibles. Pick your cover. Chase the exclusives.</p>
-    <div class="hero-cta"><a class="btn btn--primary" href="#">Shop the drop</a><a class="btn btn--ghost" href="#series">Browse series</a></div>
-    <div class="hero-facts">
-      <div><span class="n">60+</span><span class="l">Collections</span></div>
-      <div><span class="n">400+</span><span class="l">Variant covers</span></div>
-      <div><span class="n">20+</span><span class="l">Artists</span></div>
-    </div>
+<!-- SLIDESHOW -->
+<style>
+  .ss{position:relative;overflow:hidden;border-bottom:1px solid var(--hair);background:var(--ink)}
+  .ss .track{display:flex;transition:transform .6s cubic-bezier(.5,.05,.2,1)}
+  .ss .slide{position:relative;min-width:100%;overflow:hidden}
+  .slide-bg{position:absolute;inset:0;z-index:0}
+  .slide-bg img{width:100%;height:100%;object-fit:cover;opacity:.22;filter:blur(2px) saturate(1.1);transform:scale(1.08)}
+  .slide-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,var(--ink) 8%,rgba(16,20,13,.55) 55%,transparent),linear-gradient(to top,var(--ink),transparent 60%)}
+  .slide-inner{position:relative;z-index:1;display:grid;grid-template-columns:1.05fr .95fr;align-items:center;gap:clamp(24px,5vw,56px);min-height:clamp(380px,52vw,540px);padding-block:clamp(30px,4vw,50px)}
+  .slide-title{font-family:var(--f-display);font-weight:800;font-stretch:condensed;text-transform:uppercase;font-size:clamp(42px,7.5vw,96px);line-height:.86;letter-spacing:-.015em;margin:0}
+  .slide-copy p{color:var(--muted);font-size:17px;max-width:46ch;margin:16px 0 26px}
+  .slide-cta{display:flex;flex-wrap:wrap;gap:12px}
+  .slide-art{position:relative;display:grid;place-items:center;height:100%}
+  .slide-art img{max-height:clamp(300px,40vw,440px);width:auto;border-radius:var(--radius);border:1px solid var(--hair);box-shadow:0 30px 60px -28px rgba(0,0,0,.95)}
+  .slide-art .sticker{position:absolute;top:6%;right:8%;background:var(--gold);color:#1a1206;font-family:var(--f-mono);font-weight:700;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:6px 10px;border-radius:3px;transform:rotate(6deg)}
+  .ss-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:3;width:46px;height:46px;border-radius:999px;background:rgba(23,28,21,.8);border:1px solid var(--hair);color:var(--bone);display:inline-flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);cursor:pointer}
+  .ss-arrow:hover{background:var(--ink-1);border-color:var(--red);color:var(--red)} .ss-arrow svg{width:20px;height:20px}
+  .ss-prev{left:14px} .ss-next{right:14px}
+  .ss-dots{position:absolute;z-index:3;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
+  .ss-dots button{width:9px;height:9px;border-radius:999px;border:0;background:rgba(236,230,217,.35);cursor:pointer;padding:0;transition:background .18s,width .18s}
+  .ss-dots button[aria-current="true"]{background:var(--red);width:24px}
+  @media(max-width:860px){.slide-inner{grid-template-columns:1fr;text-align:center;min-height:0}.slide-copy .eyebrow{justify-content:center}.slide-cta{justify-content:center}.slide-art{order:-1;margin-top:10px}.slide-art img{max-height:clamp(240px,56vw,320px)}.ss-arrow{display:none}}
+</style>
+<section class="ss" id="Slideshow" data-autoplay="6000">
+  <div class="track" data-track>
+    <div class="slide"><div class="slide-bg"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/DS2-17.jpg?v=1756947696" alt=""></div>
+      <div class="wrap slide-inner"><div class="slide-copy"><span class="eyebrow">New drop · Out now</span><h2 class="slide-title">Dead Sexy #2</h2><p>Wheeler’s cult horror pin-up book — 18 variant covers, prints, a digital edition and collectible merch.</p><div class="slide-cta"><a class="btn btn--primary" href="#hub">Shop the drop</a><a class="btn btn--ghost" href="#series">Browse series</a></div></div>
+      <div class="slide-art"><span class="sticker">Out now</span><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/DS2-17.jpg?v=1756947696" alt="Dead Sexy #2"></div></div></div>
+    <div class="slide"><div class="slide-bg"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/Print_CVR_A.jpg?v=1752099784" alt=""></div>
+      <div class="wrap slide-inner"><div class="slide-copy"><span class="eyebrow">Now shipping</span><h2 class="slide-title">Surrender the Booty</h2><p>Pirates, plunder and pin-ups. Grab the print run before it sails off.</p><div class="slide-cta"><a class="btn btn--primary" href="#">Shop prints</a></div></div>
+      <div class="slide-art"><span class="sticker">Hot</span><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/Print_CVR_A.jpg?v=1752099784" alt="Surrender the Booty"></div></div></div>
+    <div class="slide"><div class="slide-bg"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/M1-APS.png?v=1778622523" alt=""></div>
+      <div class="wrap slide-inner"><div class="slide-copy"><span class="eyebrow">Fan favourite</span><h2 class="slide-title">The Mandawhorian</h2><p>Bounty-hunter parody prints, metal trading cards and art sets.</p><div class="slide-cta"><a class="btn btn--primary" href="#">Shop now</a></div></div>
+      <div class="slide-art"><span class="sticker">New</span><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/M1-APS.png?v=1778622523" alt="The Mandawhorian"></div></div></div>
+    <div class="slide"><div class="slide-bg"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_C_Laya_web.png?v=1739923072" alt=""></div>
+      <div class="wrap slide-inner"><div class="slide-copy"><span class="eyebrow">In stock</span><h2 class="slide-title">Star Whores</h2><p>A galaxy far, far too cheeky — variant covers and prints.</p><div class="slide-cta"><a class="btn btn--primary" href="#">Shop now</a></div></div>
+      <div class="slide-art"><span class="sticker">Out now</span><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_C_Laya_web.png?v=1739923072" alt="Star Whores"></div></div></div>
   </div>
-  <div class="hero-stack">
-    <span class="tag">Out now</span>
-    <div class="cov"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/DS2-8.jpg?v=1756948177" alt="Dead Sexy 2 cover"></div>
-    <div class="cov"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/DS2-17.jpg?v=1756947696" alt="Dead Sexy 2 cover"></div>
-    <div class="cov"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/DS2-1.jpg?v=1756948465" alt="Dead Sexy 2 cover"></div>
+  <button class="ss-arrow ss-prev" data-ss-prev aria-label="Previous"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg></button>
+  <button class="ss-arrow ss-next" data-ss-next aria-label="Next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
+  <div class="ss-dots" data-ss-dots>
+    <button data-ss-dot="0" aria-current="true"></button><button data-ss-dot="1"></button><button data-ss-dot="2"></button><button data-ss-dot="3"></button>
   </div>
-</div></section>
+</section>
+<script>
+  (function(){
+    var root=document.getElementById('Slideshow');var track=root.querySelector('[data-track]');
+    var n=track.children.length;var dots=[].slice.call(root.querySelectorAll('[data-ss-dot]'));
+    var i=0,timer=null,delay=parseInt(root.dataset.autoplay,10)||0;
+    var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function go(x){i=(x+n)%n;track.style.transform='translateX('+(-i*100)+'%)';dots.forEach(function(d,y){d.setAttribute('aria-current',y===i?'true':'false');});}
+    function next(){go(i+1);}function prev(){go(i-1);}
+    function play(){if(delay&&!reduce){stop();timer=setInterval(next,delay);}}function stop(){if(timer){clearInterval(timer);timer=null;}}
+    root.addEventListener('click',function(e){if(e.target.closest('[data-ss-next]')){next();play();}else if(e.target.closest('[data-ss-prev]')){prev();play();}else{var d=e.target.closest('[data-ss-dot]');if(d){go(parseInt(d.dataset.ssDot,10));play();}}});
+    root.addEventListener('mouseenter',stop);root.addEventListener('mouseleave',play);
+    var x0=null;root.addEventListener('touchstart',function(e){x0=e.touches[0].clientX;stop();},{passive:true});
+    root.addEventListener('touchend',function(e){if(x0===null)return;var dx=e.changedTouches[0].clientX-x0;if(Math.abs(dx)>40){dx<0?next():prev();}x0=null;play();});
+    go(0);play();
+  })();
+</script>
 
 <!-- TITLE HUB DEMO -->
 <div class="demo-label">↓ New title hub — replaces the old “Options” page (one click to browse, no giant tiles)</div>

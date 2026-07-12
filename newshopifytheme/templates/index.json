@@ -1,20 +1,16 @@
 {
   "sections": {
-    "hero": {
-      "type": "hero",
-      "settings": {
-        "eyebrow": "New drop · Dead Sexy #2 out now",
-        "title": "Variant covers, not vanilla.",
-        "text": "Independent comics with a shelf full of covers, prints, digitals and collectibles. Pick your cover. Chase the exclusives.",
-        "cta_label": "Shop the drop",
-        "cta_link": "shopify://collections/dead-sexy-2-books",
-        "cta2_label": "Browse series",
-        "cta2_link": "#series",
-        "collection": "dead-sexy-2-books",
-        "stack_tag": "Out now",
-        "stat_variants": "400+",
-        "stat_artists": "20+"
-      }
+    "slideshow": {
+      "type": "slideshow",
+      "settings": { "title": "Featured titles", "autoplay_speed": 6, "show_arrows": true, "show_dots": true },
+      "blocks": {
+        "sl1": { "type": "slide", "settings": { "collection": "dead-sexy-2-books", "eyebrow": "New drop · Out now", "heading": "Dead Sexy #2", "text": "Wheeler's cult horror pin-up book — 18 variant covers, prints, a digital edition and collectible merch.", "sticker": "Out now", "cta_label": "Shop the drop", "cta2_label": "Browse series", "cta2_link": "#series" } },
+        "sl2": { "type": "slide", "settings": { "collection": "surrender-the-booty-1-prints", "eyebrow": "Now shipping", "heading": "Surrender the Booty", "text": "Pirates, plunder and pin-ups. Grab the print run before it sails off.", "sticker": "Hot", "cta_label": "Shop prints" } },
+        "sl3": { "type": "slide", "settings": { "collection": "the-mandawhorian-1-prints", "eyebrow": "Fan favourite", "heading": "The Mandawhorian", "text": "Bounty-hunter parody prints, metal trading cards and art sets.", "sticker": "New", "cta_label": "Shop now" } },
+        "sl4": { "type": "slide", "settings": { "collection": "g-busters-2-prints", "eyebrow": "On sale now", "heading": "G-Busters #2", "text": "Who you gonna call? Movie-poster prints and metal trading cards.", "sticker": "On sale", "cta_label": "Shop now" } },
+        "sl5": { "type": "slide", "settings": { "collection": "star-whores-1-books", "eyebrow": "In stock", "heading": "Star Whores", "text": "A galaxy far, far too cheeky — variant covers and prints.", "sticker": "Out now", "cta_label": "Shop now" } }
+      },
+      "block_order": ["sl1", "sl2", "sl3", "sl4", "sl5"]
     },
     "series": {
       "type": "series-grid",
@@ -77,5 +73,5 @@
       }
     }
   },
-  "order": ["hero", "series", "latest", "exclusives", "artists", "newsletter"]
+  "order": ["slideshow", "series", "latest", "exclusives", "artists", "newsletter"]
 }
