@@ -1,5 +1,6 @@
 {%- liquid
   assign logo = settings.logo
+  assign menu = linklists[section.settings.menu]
 -%}
 <style>
   .announce {
@@ -11,130 +12,222 @@
 
   .site-header {
     position: sticky; top: 0; z-index: 100;
-    background: color-mix(in srgb, var(--ink) 88%, transparent);
+    background: color-mix(in srgb, var(--ink) 90%, transparent);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--hair);
     transition: box-shadow .2s, background .2s;
   }
   .site-header.is-stuck { box-shadow: 0 10px 30px -18px rgba(0,0,0,.9); }
   .header-bar {
-    display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 20px;
-    height: 64px;
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 22px;
+    height: 66px;
   }
   .logo {
     font-family: var(--f-display); font-weight: 800; font-stretch: condensed;
     font-size: 26px; letter-spacing: .02em; text-transform: uppercase; color: var(--bone);
-    display: inline-flex; align-items: center; gap: 8px; line-height: 1;
+    display: inline-flex; align-items: center; gap: 8px; line-height: 1; white-space: nowrap;
   }
   .logo b { color: var(--red); }
-  .logo img { max-height: 34px; width: auto; }
+  .logo img { max-height: 40px; width: auto; }
 
-  .nav { display: flex; justify-content: center; gap: 4px; }
-  .nav a {
-    font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase;
-    color: var(--muted); padding: 8px 12px; border-radius: var(--radius);
-    position: relative; transition: color .15s;
+  .search-inline { position: relative; max-width: 620px; width: 100%; justify-self: center; }
+  .search-inline input {
+    width: 100%; background: var(--ink-1); border: 1px solid var(--hair); border-radius: 999px;
+    color: var(--bone); padding: 11px 46px 11px 18px; font-family: var(--f-body); font-size: 14px;
   }
-  .nav a:hover, .nav a[aria-current="page"] { color: var(--bone); }
-  .nav a::after {
-    content: ""; position: absolute; left: 12px; right: 12px; bottom: 4px; height: 2px;
-    background: var(--red); transform: scaleX(0); transform-origin: left; transition: transform .18s ease;
+  .search-inline input::placeholder { color: var(--faint); }
+  .search-inline input:focus { outline: none; border-color: var(--red); }
+  .search-inline button {
+    position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+    background: var(--red); border: 0; color: #fff; width: 36px; height: 36px; border-radius: 999px;
+    display: inline-flex; align-items: center; justify-content: center;
   }
-  .nav a:hover::after, .nav a[aria-current="page"]::after { transform: scaleX(1); }
+  .search-inline button svg { width: 17px; height: 17px; }
 
-  .header-actions { display: flex; align-items: center; gap: 6px; justify-self: end; }
-  .icon-btn {
-    background: transparent; border: 0; color: var(--bone); padding: 9px; border-radius: var(--radius);
-    display: inline-flex; align-items: center; justify-content: center; position: relative;
-    transition: color .15s, background .15s;
-  }
-  .icon-btn:hover { color: var(--red); background: var(--ink-1); }
-  .icon-btn svg { width: 20px; height: 20px; }
+  .header-actions { display: flex; align-items: center; gap: 4px; justify-self: end; }
+  .act-link { display: inline-flex; align-items: center; gap: 7px; color: var(--bone); padding: 9px 10px; border-radius: var(--radius); font-family: var(--f-mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+  .act-link:hover { color: var(--red); }
+  .act-link svg { width: 20px; height: 20px; }
+  .cart-link { position: relative; }
   .cart-count {
-    position: absolute; top: 2px; right: 0; background: var(--red); color: #fff;
+    position: absolute; top: 0; right: -2px; background: var(--red); color: #fff;
     font-family: var(--f-mono); font-size: 10px; font-weight: 700; min-width: 16px; height: 16px;
     border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px;
   }
-  .menu-btn { display: none; }
+  .menu-btn { display: none; background: transparent; border: 0; color: var(--bone); padding: 9px; }
+  .menu-btn svg { width: 22px; height: 22px; }
 
-  .search-overlay {
-    position: fixed; inset: 0; z-index: 150; background: color-mix(in srgb, var(--ink) 92%, transparent);
-    backdrop-filter: blur(8px); padding-top: 14vh;
+  /* ---- Nav bar (desktop mega-menu) ---- */
+  .nav-bar { border-top: 1px solid var(--hair); }
+  .nav-list { display: flex; align-items: stretch; gap: 2px; margin: 0; padding: 0; list-style: none; }
+  .nav-item { position: relative; }
+  .nav-top {
+    display: inline-flex; align-items: center; gap: 6px; height: 46px; padding: 0 14px;
+    font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); transition: color .15s;
   }
-  .search-overlay form { width: min(100% - 3rem, 720px); margin-inline: auto; }
-  .search-overlay .field { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid var(--red); padding-bottom: 10px; }
-  .search-overlay input {
-    flex: 1; background: transparent; border: 0; color: var(--bone);
-    font-family: var(--f-display); font-stretch: condensed; font-size: clamp(28px, 6vw, 52px);
-    text-transform: uppercase; letter-spacing: -.01em;
-  }
-  .search-overlay input:focus { outline: none; }
-  .search-overlay input::placeholder { color: var(--faint); }
-  .search-overlay .hint { font-family: var(--f-mono); font-size: 12px; color: var(--muted); margin-top: 14px; letter-spacing: .06em; }
+  .nav-item:hover .nav-top, .nav-item:focus-within .nav-top, .nav-top[aria-current="page"] { color: var(--bone); }
+  .nav-top .chev { width: 12px; height: 12px; opacity: .7; transition: transform .18s; }
+  .nav-item:hover .nav-top .chev, .nav-item:focus-within .nav-top .chev { transform: rotate(180deg); }
+  .nav-top::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: 0; height: 2px; background: var(--red); transform: scaleX(0); transform-origin: left; transition: transform .18s; }
+  .nav-item:hover .nav-top::after, .nav-item:focus-within .nav-top::after { transform: scaleX(1); }
 
-  @media (max-width: 900px) {
-    .menu-btn { display: inline-flex; }
-    .nav {
-      position: fixed; inset: 0 0 0 auto; width: min(84vw, 340px);
-      background: var(--ink-1); border-left: 1px solid var(--hair);
-      flex-direction: column; justify-content: flex-start; gap: 2px; padding: 78px 18px 24px;
-      transform: translateX(100%); transition: transform .24s ease; z-index: 140;
+  .dropdown {
+    position: absolute; top: 100%; left: 0; z-index: 90; min-width: 220px;
+    background: var(--ink-1); border: 1px solid var(--hair); border-radius: var(--radius);
+    box-shadow: 0 24px 50px -24px rgba(0,0,0,.95); padding: 8px;
+    opacity: 0; visibility: hidden; transform: translateY(6px); transition: opacity .16s, transform .16s, visibility .16s;
+  }
+  .nav-item:hover > .dropdown, .nav-item:focus-within > .dropdown { opacity: 1; visibility: visible; transform: translateY(0); }
+  .dropdown-list { display: flex; flex-direction: column; }
+  .dropdown-list a { padding: 9px 12px; border-radius: 3px; color: var(--muted); font-size: 13.5px; transition: background .12s, color .12s; }
+  .dropdown-list a:hover { background: var(--ink-2); color: var(--bone); }
+
+  .dropdown--mega { left: 50%; transform: translate(-50%, 6px); width: min(92vw, 860px); padding: 18px; }
+  .nav-item:hover > .dropdown--mega, .nav-item:focus-within > .dropdown--mega { transform: translate(-50%, 0); }
+  .mega-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 20px; }
+  .mega-col { padding: 6px 0; }
+  .mega-title { display: block; font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; font-size: 15px; color: var(--bone); letter-spacing: .01em; padding: 4px 0; }
+  .mega-title:hover { color: var(--red); }
+  .mega-subs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+  .mega-subs a { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); border: 1px solid var(--hair); border-radius: 999px; padding: 3px 8px; transition: all .12s; }
+  .mega-subs a:hover { border-color: var(--red); color: var(--bone); }
+
+  .sub-toggle { display: none; }
+
+  @media (max-width: 1024px) {
+    .search-inline { display: none; }
+    .header-bar { grid-template-columns: auto auto 1fr; }
+    .menu-btn { display: inline-flex; order: -1; }
+    .nav-bar {
+      position: fixed; inset: 0 0 0 auto; width: min(88vw, 380px); z-index: 140;
+      background: var(--ink-1); border-left: 1px solid var(--hair); border-top: 0;
+      transform: translateX(100%); transition: transform .24s ease; overflow-y: auto; padding: 70px 0 30px;
     }
-    .nav.is-open { transform: translateX(0); }
-    .nav a { font-size: 16px; padding: 14px 12px; border-bottom: 1px solid var(--hair); border-radius: 0; }
-    .nav a::after { display: none; }
-    .header-bar { grid-template-columns: auto auto 1fr auto; }
-    .logo { font-size: 22px; }
+    .nav-bar.is-open { transform: translateX(0); }
+    .nav-list { flex-direction: column; gap: 0; }
+    .nav-item { border-bottom: 1px solid var(--hair); }
+    .nav-top { height: auto; padding: 15px 20px; font-size: 15px; width: 100%; justify-content: space-between; }
+    .nav-top::after { display: none; }
+    .sub-toggle { display: inline-flex; background: transparent; border: 0; color: var(--muted); padding: 12px 20px; position: absolute; right: 0; top: 0; }
+    .sub-toggle svg { width: 16px; height: 16px; transition: transform .18s; }
+    .nav-item.is-open .sub-toggle svg { transform: rotate(180deg); }
+    .dropdown, .dropdown--mega {
+      position: static; opacity: 1; visibility: visible; transform: none !important; width: auto;
+      box-shadow: none; border: 0; border-top: 1px solid var(--hair); border-radius: 0; background: var(--ink);
+      display: none; padding: 6px 12px 14px;
+    }
+    .nav-item.is-open > .dropdown, .nav-item.is-open > .dropdown--mega { display: block; }
+    .mega-grid { grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+    .nav-close { position: absolute; top: 16px; right: 16px; }
   }
   body.nav-locked { overflow: hidden; }
+  .nav-close { display: none; }
+  @media (max-width: 1024px) { .nav-close { display: inline-flex; background: transparent; border: 0; color: var(--bone); padding: 8px; } .nav-close svg { width: 22px; height: 22px; } }
+
+  .search-overlay { position: fixed; inset: 0; z-index: 150; background: color-mix(in srgb, var(--ink) 92%, transparent); backdrop-filter: blur(8px); padding-top: 14vh; }
+  .search-overlay form { width: min(100% - 3rem, 720px); margin-inline: auto; }
+  .search-overlay .field { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid var(--red); padding-bottom: 10px; }
+  .search-overlay input { flex: 1; background: transparent; border: 0; color: var(--bone); font-family: var(--f-display); font-stretch: condensed; font-size: clamp(28px, 6vw, 52px); text-transform: uppercase; }
+  .search-overlay input:focus { outline: none; }
+  .search-overlay .hint { font-family: var(--f-mono); font-size: 12px; color: var(--muted); margin-top: 14px; letter-spacing: .06em; }
 </style>
 
 {%- if section.settings.announcement != blank -%}
   <div class="announce">
     {%- if section.settings.announcement_link != blank -%}
       <a href="{{ section.settings.announcement_link }}">{{ section.settings.announcement }}</a>
-    {%- else -%}
-      {{ section.settings.announcement }}
-    {%- endif -%}
+    {%- else -%}{{ section.settings.announcement }}{%- endif -%}
   </div>
 {%- endif -%}
 
 <header class="site-header" data-header>
   <div class="wrap header-bar">
-    <button class="icon-btn menu-btn" data-menu-toggle aria-expanded="false" aria-controls="SiteNav" aria-label="{{ 'accessibility.menu' | t }}">
+    <button class="menu-btn" data-menu-toggle aria-expanded="false" aria-controls="SiteNav" aria-label="{{ 'accessibility.menu' | t }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
     </button>
 
     <a href="{{ routes.root_url }}" class="logo">
       {%- if logo != blank -%}
-        <img src="{{ logo | image_url: width: 240 }}" alt="{{ shop.name }}" width="120">
-      {%- else -%}
-        {{ settings.logo_text | default: shop.name }}<b>.</b>
-      {%- endif -%}
+        <img src="{{ logo | image_url: width: 280 }}" alt="{{ shop.name }}">
+      {%- else -%}{{ settings.logo_text | default: shop.name }}<b>.</b>{%- endif -%}
     </a>
 
-    <nav class="nav" id="SiteNav" aria-label="Primary">
-      <button class="icon-btn menu-btn" data-menu-close aria-label="{{ 'accessibility.close' | t }}" style="position:absolute;top:16px;right:14px;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
-      {%- for link in linklists[section.settings.menu].links -%}
-        <a href="{{ link.url }}" {% if link.active %}aria-current="page"{% endif %}>{{ link.title }}</a>
-      {%- endfor -%}
-    </nav>
+    <form class="search-inline" action="{{ routes.search_url }}" method="get" role="search">
+      <input type="search" name="q" placeholder="{{ 'general.search.placeholder' | t }}" autocomplete="off" aria-label="{{ 'general.search.search' | t }}">
+      <button type="submit" aria-label="{{ 'general.search.submit' | t }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg></button>
+    </form>
 
     <div class="header-actions">
-      <button class="icon-btn" data-search-toggle aria-label="{{ 'accessibility.search' | t }}">
+      <button class="act-link" data-search-toggle aria-label="{{ 'accessibility.search' | t }}" style="background:transparent;border:0;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
       </button>
-      <a href="{{ routes.account_url }}" class="icon-btn" aria-label="{{ 'accessibility.account' | t }}">
+      <a href="{{ routes.account_url }}" class="act-link">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        <span class="act-label">{{ 'accessibility.account' | t }}</span>
       </a>
-      <a href="{{ routes.cart_url }}" class="icon-btn" aria-label="{{ 'accessibility.cart' | t }}">
+      <a href="{{ routes.cart_url }}" class="act-link cart-link" aria-label="{{ 'accessibility.cart' | t }}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>
         {%- if cart.item_count > 0 -%}<span class="cart-count">{{ cart.item_count }}</span>{%- endif -%}
       </a>
     </div>
   </div>
+
+  <nav class="nav-bar" id="SiteNav" aria-label="Primary">
+    <button class="nav-close" data-menu-close aria-label="{{ 'accessibility.close' | t }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <ul class="nav-list wrap">
+      {%- for link in menu.links -%}
+        {%- liquid
+          assign is_mega = false
+          if link.links != blank
+            for child in link.links
+              if child.links != blank
+                assign is_mega = true
+                break
+              endif
+            endfor
+          endif
+        -%}
+        <li class="nav-item{% if link.links != blank %} has-children{% endif %}">
+          <a href="{{ link.url }}" class="nav-top" {% if link.active or link.child_active %}aria-current="page"{% endif %}>
+            {{ link.title }}
+            {%- if link.links != blank -%}
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+            {%- endif -%}
+          </a>
+          {%- if link.links != blank -%}
+            <button class="sub-toggle" data-submenu aria-label="Expand {{ link.title }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            {%- if is_mega -%}
+              <div class="dropdown dropdown--mega">
+                <div class="mega-grid">
+                  {%- for child in link.links -%}
+                    <div class="mega-col">
+                      <a href="{{ child.url }}" class="mega-title">{{ child.title }}</a>
+                      {%- if child.links != blank -%}
+                        <div class="mega-subs">
+                          {%- for g in child.links -%}<a href="{{ g.url }}">{{ g.title }}</a>{%- endfor -%}
+                        </div>
+                      {%- endif -%}
+                    </div>
+                  {%- endfor -%}
+                </div>
+              </div>
+            {%- else -%}
+              <div class="dropdown">
+                <div class="dropdown-list">
+                  {%- for child in link.links -%}<a href="{{ child.url }}">{{ child.title }}</a>{%- endfor -%}
+                </div>
+              </div>
+            {%- endif -%}
+          {%- endif -%}
+        </li>
+      {%- endfor -%}
+    </ul>
+  </nav>
 </header>
 
 <div class="search-overlay" id="SearchOverlay" hidden>
@@ -142,11 +235,9 @@
     <div class="field">
       <svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" width="30" height="30"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
       <input type="search" name="q" placeholder="{{ 'general.search.placeholder' | t }}" autocomplete="off">
-      <button type="button" class="icon-btn" data-search-close aria-label="{{ 'accessibility.close' | t }}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
+      <button type="button" data-search-close aria-label="{{ 'accessibility.close' | t }}" style="background:transparent;border:0;color:var(--bone);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
-    <p class="hint">Try “Dead Sexy”, “Star Whores”, an issue code like “DS2-14”, or an artist.</p>
+    <p class="hint">Try a title (“Dead Sexy”), an issue code (“DS2-14”), or an artist.</p>
   </form>
 </div>
 
@@ -154,9 +245,9 @@
 {
   "name": "Header",
   "settings": [
-    { "type": "link_list", "id": "menu", "label": "Menu", "default": "main-menu" },
+    { "type": "link_list", "id": "menu", "label": "Menu", "default": "main-menu", "info": "Supports up to 3 levels: Category → Title → Format." },
     { "type": "header", "content": "Announcement bar" },
-    { "type": "text", "id": "announcement", "label": "Text", "default": "Free US shipping over $75 · New drop: Sweeney Todd #1 is live" },
+    { "type": "text", "id": "announcement", "label": "Text", "default": "G-Busters #2 Now On Sale!" },
     { "type": "url", "id": "announcement_link", "label": "Link" }
   ]
 }

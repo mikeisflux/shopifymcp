@@ -39,7 +39,10 @@
           if img == blank and coll.products.first.featured_media != blank
             assign img = coll.products.first.featured_media
           endif
-          assign tile_url = coll.url
+          assign tile_url = block.settings.link
+          if tile_url == blank
+            assign tile_url = coll.url
+          endif
           if tile_url == blank and block.settings.collection != blank
             assign tile_url = block.settings.collection | prepend: '/collections/'
           endif
@@ -72,7 +75,8 @@
       "name": "Series",
       "settings": [
         { "type": "text", "id": "title", "label": "Display name" },
-        { "type": "collection", "id": "collection", "label": "Collection" }
+        { "type": "collection", "id": "collection", "label": "Collection (used for the tile image + count)" },
+        { "type": "url", "id": "link", "label": "Link to (optional)", "info": "Point at the title hub page, e.g. /pages/dead-sexy-1. Falls back to the collection." }
       ]
     }
   ],

@@ -16,6 +16,13 @@
       if (n) n.classList.remove('is-open');
       document.body.classList.remove('nav-locked');
     }
+    // Mobile: expand/collapse a nav item's submenu
+    var sub = e.target.closest('[data-submenu]');
+    if (sub) {
+      e.preventDefault();
+      var item = sub.closest('.nav-item');
+      if (item) item.classList.toggle('is-open');
+    }
   });
 
   /* Search overlay */

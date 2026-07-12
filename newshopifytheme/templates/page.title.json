@@ -1,0 +1,14 @@
+{
+  "sections": {
+    "main": {
+      "type": "title-hub",
+      "settings": {
+        "auto_from_handle": true,
+        "eyebrow": "Pick your format",
+        "strip_heading": "Latest covers",
+        "strip_count": 8
+      }
+    }
+  },
+  "order": ["main"]
+}

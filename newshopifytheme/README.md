@@ -42,7 +42,24 @@ shopify theme dev      # live local preview against your store
 shopify theme push     # upload as an unpublished theme
 ```
 
-## After uploading — 2 quick steps
+## The browsing flow (improved)
+Your old flow was **menu → title page with 4 giant "Options" tiles → collection → product**.
+This theme keeps your title-first instinct but removes the clunky middle step:
+
+- **Dark mega-menu.** The header renders your existing menu hierarchy
+  (Mature Titles → *title* → *format*) as an on-brand dark dropdown, so power
+  users jump straight to `Dead Sexy → Books`.
+- **Title Hub** (`page.title` template + `title-hub` section) *replaces* the
+  giant Options page. It shows the title's art, a compact row of format chips
+  (Books / Prints / Digital / Merch) and a live strip of that title's newest
+  covers — one page, one click to browse.
+  - It **auto-detects** each title's format collections from the page handle
+    (`dead-sexy-1` → `dead-sexy-1-books`, `-prints`, `-digital`/`-digitals`,
+    `-merch`), so **one template serves every title** — only the formats that
+    actually exist show up. To use it: open each title page in Admin, and under
+    *Theme templates* choose **title**. No per-page setup needed.
+
+## After uploading — quick steps
 1. **Menus.** Create/point these navigation menus in **Admin → Navigation**:
    - `main-menu` (header): e.g. New Drops, Books, Prints, Digital, Exclusives.
    - `footer` (footer columns).
