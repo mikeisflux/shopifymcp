@@ -268,6 +268,7 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_duplicate_product` | Duplicate a product (copies variants, options, and optionally images) with a new title/status. |
 | `shopify_update_variant` | Update a variant's price, compare-at, SKU, inventory policy, or inventory tracking. |
 | `shopify_create_variant` | Add one or more variants (with option values) to an existing product. |
+| `shopify_reorder_option_values` | Set the display order of a product option's values (list order = position). |
 | `shopify_delete_variant` | Delete variants from a product (irreversible; a product keeps ≥1 variant). |
 | `shopify_add_product_media` | Add image(s) to a product from public URLs, with alt text. |
 | `shopify_assign_variant_media` | Attach product media to variants — one media to all variants, or explicit variant→media pairs. De-dupes, so re-runs are safe. |

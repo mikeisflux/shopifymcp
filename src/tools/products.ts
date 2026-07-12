@@ -456,6 +456,14 @@ const APPEND_VARIANT_MEDIA = /* GraphQL */ `
   }
 `;
 
+const REORDER_OPTION_VALUES = /* GraphQL */ `
+  mutation ReorderOptionValues($productId: ID!, $options: [OptionReorderInput!]!) {
+    productOptionsReorder(productId: $productId, options: $options) {
+      userErrors { field message }
+    }
+  }
+`;
+
 export function registerProductWriteTools(server: McpServer, client: ShopifyClient): void {
   registerTool(server, client, {
     name: "shopify_create_product",
@@ -1058,6 +1066,64 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
             variantId: gidToId(a.variantId),
             mediaIds: a.mediaIds.map((m) => gidToId(m)),
           })),
+        },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_reorder_option_values",
+    title: "Reorder a product option's values",
+    description:
+      "Set the display order of a product option's values (e.g. put Standard, Foil, B&W, Sketch in " +
+      "that order). The order you list the values in IS their new position — the storefront renders " +
+      "them accordingly. Identify the option by name or id, and pass ALL of its values in the " +
+      "desired order.",
+    inputSchema: {
+      productId: z.string().describe("Product id (numeric or GID)."),
+      optionName: z.string().optional().describe('The option to reorder, by name, e.g. "Print Type".'),
+      optionId: z.string().optional().describe("The option to reorder, by id (numeric or GID). Use this OR optionName."),
+      values: z
+        .array(z.string())
+        .min(1)
+        .describe(
+          'The option values in the desired display order, e.g. ["Standard","Foil","B&W","Sketch"]. ' +
+            "Use value names (or GIDs). List every value of the option.",
+        ),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      if ((!args.optionName && !args.optionId) || (args.optionName && args.optionId)) {
+        throw new Error("Provide exactly one of `optionName` or `optionId`.");
+      }
+
+      const optionRef: Record<string, unknown> = args.optionId
+        ? { id: toGid("ProductOption", args.optionId) }
+        : { name: args.optionName };
+      // A value is referenced by GID if it looks like one, otherwise by name.
+      optionRef.values = args.values.map((v) =>
+        v.startsWith("gid://shopify/") ? { id: v } : { name: v },
+      );
+
+      const res = await c.request<{
+        productOptionsReorder: {
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(REORDER_OPTION_VALUES, {
+        productId: toGid("Product", args.productId),
+        options: [optionRef],
+      });
+      assertNoUserErrors(res.data.productOptionsReorder.userErrors);
+      return {
+        markdown:
+          `Reordered option ${args.optionName ?? gidToId(args.optionId!)} on product ${gidToId(args.productId)} to: ` +
+          args.values.join(" → ") +
+          ".",
+        structured: {
+          productId: gidToId(args.productId),
+          option: args.optionName ?? gidToId(args.optionId!),
+          order: args.values,
         },
         cost: res.cost,
       };
