@@ -464,6 +464,37 @@ const REORDER_OPTION_VALUES = /* GraphQL */ `
   }
 `;
 
+const GET_PRODUCT_OPTIONS = /* GraphQL */ `
+  query GetProductOptions($id: ID!) {
+    product(id: $id) {
+      options { id name position optionValues { id name } }
+    }
+  }
+`;
+
+const UPDATE_PRODUCT_OPTION = /* GraphQL */ `
+  mutation UpdateProductOption(
+    $productId: ID!
+    $option: OptionUpdateInput!
+    $optionValuesToAdd: [OptionValueCreateInput!]
+    $optionValuesToUpdate: [OptionValueUpdateInput!]
+    $optionValuesToDelete: [ID!]
+    $variantStrategy: ProductOptionUpdateVariantStrategy
+  ) {
+    productOptionUpdate(
+      productId: $productId
+      option: $option
+      optionValuesToAdd: $optionValuesToAdd
+      optionValuesToUpdate: $optionValuesToUpdate
+      optionValuesToDelete: $optionValuesToDelete
+      variantStrategy: $variantStrategy
+    ) {
+      product { id }
+      userErrors { field message }
+    }
+  }
+`;
+
 export function registerProductWriteTools(server: McpServer, client: ShopifyClient): void {
   registerTool(server, client, {
     name: "shopify_create_product",
@@ -1125,6 +1156,118 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
           option: args.optionName ?? gidToId(args.optionId!),
           order: args.values,
         },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_update_product_option",
+    title: "Rename a product option and/or its values",
+    description:
+      "Rename a product option (e.g. \"Print\" → \"Style\") and/or rename its values (e.g. \"Nice\" → " +
+      '"11x17 Art Print"). Can also add or delete values. Identify the option by name or id, and ' +
+      "rename values by their current name or id. Resolves names to ids for you.",
+    inputSchema: {
+      productId: z.string().describe("Product id (numeric or GID)."),
+      optionName: z.string().optional().describe("The option to change, by its current name."),
+      optionId: z.string().optional().describe("The option to change, by id (numeric or GID). Use this OR optionName."),
+      name: z.string().optional().describe("New name for the option itself."),
+      valuesToRename: z
+        .array(
+          z.object({
+            from: z.string().optional().describe("Current value name to rename (use this or id)."),
+            id: z.string().optional().describe("Value id to rename (numeric or GID)."),
+            to: z.string().describe("New value name."),
+          }),
+        )
+        .optional()
+        .describe('Rename option values, e.g. [{from:"Nice", to:"11x17 Art Print"}].'),
+      valuesToAdd: z.array(z.string()).optional().describe("New value names to add to the option."),
+      valuesToDelete: z
+        .array(z.string())
+        .optional()
+        .describe("Value names or ids to delete from the option."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    handler: async (args, c) => {
+      if ((!args.optionName && !args.optionId) || (args.optionName && args.optionId)) {
+        throw new Error("Provide exactly one of `optionName` or `optionId`.");
+      }
+
+      // Resolve the option and its value name→id map from the product.
+      const optRes = await c.request<{
+        product: {
+          options: Array<{
+            id: string;
+            name: string;
+            position: number;
+            optionValues: Array<{ id: string; name: string }>;
+          }>;
+        } | null;
+      }>(GET_PRODUCT_OPTIONS, { id: toGid("Product", args.productId) });
+      if (!optRes.data.product) throw new Error(`No product found with id ${gidToId(args.productId)}.`);
+
+      const wantOptionGid = args.optionId ? toGid("ProductOption", args.optionId) : undefined;
+      const option = optRes.data.product.options.find((o) =>
+        wantOptionGid ? o.id === wantOptionGid : o.name === args.optionName,
+      );
+      if (!option) {
+        throw new Error(
+          `Option ${args.optionName ?? gidToId(args.optionId!)} not found on product ${gidToId(args.productId)}.`,
+        );
+      }
+      const valueIdByName = new Map(option.optionValues.map((v) => [v.name, v.id]));
+
+      /** Resolves a value reference (id or name) to its GID. */
+      const resolveValueGid = (ref: { id?: string; from?: string }): string => {
+        if (ref.id) return toGid("ProductOptionValue", ref.id);
+        const id = ref.from ? valueIdByName.get(ref.from) : undefined;
+        if (!id) throw new Error(`Option value "${ref.from}" not found on option "${option.name}".`);
+        return id;
+      };
+
+      const variables: Record<string, unknown> = {
+        productId: toGid("Product", args.productId),
+        option: { id: option.id, ...(args.name !== undefined ? { name: args.name } : {}) },
+        variantStrategy: "LEAVE_AS_IS",
+      };
+      if (args.valuesToRename && args.valuesToRename.length > 0) {
+        variables.optionValuesToUpdate = args.valuesToRename.map((v) => ({
+          id: resolveValueGid(v),
+          name: v.to,
+        }));
+      }
+      if (args.valuesToAdd && args.valuesToAdd.length > 0) {
+        variables.optionValuesToAdd = args.valuesToAdd.map((name) => ({ name }));
+      }
+      if (args.valuesToDelete && args.valuesToDelete.length > 0) {
+        variables.optionValuesToDelete = args.valuesToDelete.map((v) =>
+          v.startsWith("gid://shopify/") ? v : valueIdByName.get(v) ?? toGid("ProductOptionValue", v),
+        );
+      }
+
+      const res = await c.request<{
+        productOptionUpdate: {
+          product: { id: string } | null;
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(UPDATE_PRODUCT_OPTION, variables);
+      assertNoUserErrors(res.data.productOptionUpdate.userErrors);
+
+      const changes: string[] = [];
+      if (args.name !== undefined) changes.push(`option → "${args.name}"`);
+      if (args.valuesToRename?.length) {
+        changes.push(...args.valuesToRename.map((v) => `"${v.from ?? gidToId(v.id!)}" → "${v.to}"`));
+      }
+      if (args.valuesToAdd?.length) changes.push(`added [${args.valuesToAdd.join(", ")}]`);
+      if (args.valuesToDelete?.length) changes.push(`deleted [${args.valuesToDelete.join(", ")}]`);
+      return {
+        markdown:
+          `Updated option "${option.name}" on product ${gidToId(args.productId)}: ` +
+          (changes.length ? changes.join("; ") : "no changes") +
+          ".",
+        structured: { productId: gidToId(args.productId), option: option.name, changes },
         cost: res.cost,
       };
     },

@@ -18,10 +18,15 @@ import { configureLogger, log } from "./logger.js";
 import { ShopifyClient } from "./shopify-client.js";
 import { registerProductTools, registerProductWriteTools } from "./tools/products.js";
 import { registerOrderTools } from "./tools/orders.js";
+import { registerOrderWriteTools } from "./tools/orders-write.js";
 import { registerCustomerTools } from "./tools/customers.js";
+import { registerCustomerWriteTools } from "./tools/customers-write.js";
 import { registerInventoryTools, registerInventoryWriteTools } from "./tools/inventory.js";
 import { registerDraftOrderTools, registerDraftOrderWriteTools } from "./tools/draft-orders.js";
 import { registerReadMiscTools, registerWriteMiscTools } from "./tools/misc.js";
+import { registerStoreOpsReadTools, registerStoreOpsWriteTools } from "./tools/store-ops.js";
+import { registerCommerceExtraReadTools, registerCommerceExtraWriteTools } from "./tools/commerce-extra.js";
+import { registerContentReadTools, registerContentWriteTools } from "./tools/content.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
@@ -44,13 +49,21 @@ function buildServer(config: Config, client: ShopifyClient): McpServer {
   registerInventoryTools(server, client);
   registerDraftOrderTools(server, client);
   registerReadMiscTools(server, client);
+  registerStoreOpsReadTools(server, client);
+  registerCommerceExtraReadTools(server, client);
+  registerContentReadTools(server, client);
 
   // Write tools — only when ENABLE_WRITES=true.
   if (config.enableWrites) {
     registerProductWriteTools(server, client);
+    registerOrderWriteTools(server, client);
+    registerCustomerWriteTools(server, client);
     registerInventoryWriteTools(server, client);
     registerDraftOrderWriteTools(server, client);
     registerWriteMiscTools(server, client);
+    registerStoreOpsWriteTools(server, client);
+    registerCommerceExtraWriteTools(server, client);
+    registerContentWriteTools(server, client);
   }
 
   return server;
