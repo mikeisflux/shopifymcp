@@ -1,0 +1,34 @@
+<div class="wrap auth">
+  <h1>{{ 'customer.register.title' | t }}</h1>
+  <p class="sub">One account for orders, exclusives and reprints.</p>
+  {%- form 'create_customer', novalidate: 'novalidate' -%}
+    {%- if form.errors -%}<div class="form-errors">{{ form.errors | default_errors }}</div>{%- endif -%}
+    <div class="field-group">
+      <div>
+        <label for="reg-first">{{ 'customer.register.first_name' | t }}</label>
+        <input type="text" id="reg-first" name="customer[first_name]" autocomplete="given-name">
+      </div>
+      <div>
+        <label for="reg-last">{{ 'customer.register.last_name' | t }}</label>
+        <input type="text" id="reg-last" name="customer[last_name]" autocomplete="family-name">
+      </div>
+      <div>
+        <label for="reg-email">{{ 'customer.register.email' | t }}</label>
+        <input type="email" id="reg-email" name="customer[email]" autocomplete="email" required>
+      </div>
+      <div>
+        <label for="reg-pass">{{ 'customer.register.password' | t }}</label>
+        <input type="password" id="reg-pass" name="customer[password]" autocomplete="new-password" required>
+      </div>
+      <button type="submit" class="btn btn--primary btn--block">{{ 'customer.register.submit' | t }}</button>
+    </div>
+    <div class="row-links">
+      <span style="color:var(--faint);">{{ 'customer.register.has_account' | t }}</span>
+      <a href="{{ routes.account_login_url }}">{{ 'customer.login.title' | t }}</a>
+    </div>
+  {%- endform -%}
+</div>
+
+{% schema %}
+{ "name": "Register" }
+{% endschema %}

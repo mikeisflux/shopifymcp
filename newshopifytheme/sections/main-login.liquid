@@ -1,0 +1,42 @@
+<div class="wrap auth">
+  <h1>{{ 'customer.login.title' | t }}</h1>
+  <p class="sub">Track orders, chase exclusives, keep your pull list.</p>
+
+  {%- form 'customer_login', novalidate: 'novalidate' -%}
+    {%- if form.errors -%}
+      <div class="form-errors">{{ form.errors | default_errors }}</div>
+    {%- endif -%}
+    <div class="field-group">
+      <div>
+        <label for="cust-email">{{ 'customer.login.email' | t }}</label>
+        <input type="email" id="cust-email" name="customer[email]" autocomplete="email" required>
+      </div>
+      <div>
+        <label for="cust-pass">{{ 'customer.login.password' | t }}</label>
+        <input type="password" id="cust-pass" name="customer[password]" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn--primary btn--block">{{ 'customer.login.submit' | t }}</button>
+    </div>
+    <div class="row-links">
+      <a href="#recover" onclick="document.getElementById('RecoverForm').hidden=false;return false;">{{ 'customer.login.forgot' | t }}</a>
+      <a href="{{ routes.account_register_url }}">{{ 'customer.login.create' | t }}</a>
+    </div>
+  {%- endform -%}
+
+  <div id="RecoverForm" hidden style="margin-top:28px;padding-top:24px;border-top:1px solid var(--hair);">
+    {%- form 'recover_customer_password' -%}
+      <p class="sub">{{ 'customer.recover.subtext' | t }}</p>
+      <div class="field-group">
+        <div>
+          <label for="recover-email">{{ 'customer.login.email' | t }}</label>
+          <input type="email" id="recover-email" name="email" required>
+        </div>
+        <button type="submit" class="btn btn--ghost btn--block">{{ 'customer.recover.submit' | t }}</button>
+      </div>
+    {%- endform -%}
+  </div>
+</div>
+
+{% schema %}
+{ "name": "Login" }
+{% endschema %}

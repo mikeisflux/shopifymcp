@@ -1,0 +1,75 @@
+<style>
+  .cart-head { padding-block: clamp(24px, 4vw, 44px) 20px; }
+  .cart-title { font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; font-size: clamp(32px, 5vw, 56px); margin: 0; line-height: .9; }
+  .cart-grid { display: grid; grid-template-columns: 1fr 320px; gap: clamp(24px, 4vw, 48px); align-items: start; padding-bottom: 60px; }
+  .cart-line { display: grid; grid-template-columns: 68px 1fr auto; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--hair); align-items: center; }
+  .cart-line .thumb { aspect-ratio: 2/3; border-radius: 3px; overflow: hidden; background: var(--ink-2); border: 1px solid var(--hair); }
+  .cart-line .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .cart-line h3 { font-size: 15px; margin: 0 0 3px; }
+  .cart-line .sub { font-family: var(--f-mono); font-size: 11.5px; color: var(--faint); }
+  .cart-line a.remove { font-family: var(--f-mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid transparent; }
+  .cart-line a.remove:hover { color: var(--red); border-color: var(--red); }
+  .cart-line .line-right { text-align: right; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  .cart-line .price { font-family: var(--f-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .cart-aside { position: sticky; top: 84px; background: var(--ink-1); border: 1px solid var(--hair); border-radius: var(--radius); padding: 22px; }
+  .cart-aside .row { display: flex; justify-content: space-between; font-family: var(--f-mono); margin-bottom: 10px; }
+  .cart-aside .row.total { font-size: 20px; color: var(--bone); padding-top: 14px; border-top: 1px solid var(--hair); margin-top: 6px; }
+  .cart-aside .note { color: var(--faint); font-size: 11.5px; font-family: var(--f-mono); margin: 6px 0 16px; }
+  .cart-aside textarea { width: 100%; background: var(--ink); border: 1px solid var(--hair); border-radius: var(--radius); color: var(--bone); padding: 10px; font-family: inherit; font-size: 13px; margin-bottom: 14px; resize: vertical; min-height: 64px; }
+  .empty-cart { text-align: center; padding: 80px 0; }
+  .empty-cart p { color: var(--muted); margin-bottom: 22px; }
+  @media (max-width: 780px) { .cart-grid { grid-template-columns: 1fr; } .cart-aside { position: static; } }
+</style>
+
+<div class="wrap cart-head">
+  <h1 class="cart-title">{{ 'cart.title' | t }}</h1>
+</div>
+
+<div class="wrap">
+  {%- if cart.item_count > 0 -%}
+    <form action="{{ routes.cart_url }}" method="post" class="cart-grid">
+      <div class="cart-lines">
+        {%- for item in cart.items -%}
+          <div class="cart-line">
+            <a class="thumb" href="{{ item.url }}">
+              {%- if item.image -%}<img src="{{ item.image | image_url: width: 160 }}" alt="{{ item.title | escape }}">{%- endif -%}
+            </a>
+            <div>
+              <h3><a href="{{ item.url }}">{{ item.product.title }}</a></h3>
+              {%- unless item.variant.title contains 'Default' -%}<div class="sub">{{ item.variant.title }}</div>{%- endunless -%}
+              {%- if item.sku != blank -%}<div class="sub">{{ item.sku }}</div>{%- endif -%}
+              <div class="qty" style="margin-top:10px;">
+                <button type="button" data-qty="down" aria-label="Decrease">–</button>
+                <input type="number" name="updates[]" value="{{ item.quantity }}" min="0" aria-label="Quantity" data-line="{{ forloop.index }}" onchange="this.form.submit()">
+                <button type="button" data-qty="up" aria-label="Increase">+</button>
+              </div>
+            </div>
+            <div class="line-right">
+              <span class="price">{{ item.final_line_price | money }}</span>
+              <a class="remove" href="{{ item.url_to_remove }}">{{ 'cart.remove' | t }}</a>
+            </div>
+          </div>
+        {%- endfor -%}
+      </div>
+
+      <aside class="cart-aside">
+        <label for="CartNote" class="sub" style="display:block;margin-bottom:6px;font-family:var(--f-mono);text-transform:uppercase;letter-spacing:.1em;font-size:11px;color:var(--faint);">{{ 'cart.note' | t }}</label>
+        <textarea id="CartNote" name="note" placeholder="Gift note, cover requests…">{{ cart.note }}</textarea>
+        <div class="row"><span>{{ 'cart.subtotal' | t }}</span><span>{{ cart.total_price | money }}</span></div>
+        <div class="row total"><span>{{ 'cart.total' | t }}</span><span>{{ cart.total_price | money }}</span></div>
+        <p class="note">{{ 'cart.taxes_shipping' | t }}</p>
+        <button type="submit" name="checkout" class="btn btn--primary btn--block">{{ 'cart.checkout' | t }}</button>
+        <a href="{{ routes.all_products_collection_url }}" class="btn btn--ghost btn--block" style="margin-top:10px;">{{ 'cart.continue' | t }}</a>
+      </aside>
+    </form>
+  {%- else -%}
+    <div class="empty-cart">
+      <p>{{ 'cart.empty' | t }}</p>
+      <a href="{{ routes.all_products_collection_url }}" class="btn btn--primary">{{ 'cart.continue' | t }}</a>
+    </div>
+  {%- endif -%}
+</div>
+
+{% schema %}
+{ "name": "Cart" }
+{% endschema %}

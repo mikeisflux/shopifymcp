@@ -1,0 +1,38 @@
+<div class="wrap">
+  <div class="acct-head">
+    <div>
+      <span class="eyebrow">{{ 'customer.order.date' | t: date: order.created_at | date: '%B %d, %Y' }}</span>
+      <h1 style="font-family:var(--f-display);font-weight:800;font-stretch:condensed;text-transform:uppercase;font-size:clamp(28px,5vw,46px);margin:6px 0 0;line-height:.9;">{{ 'customer.order.title' | t: name: order.name }}</h1>
+    </div>
+    <a class="btn btn--ghost" href="{{ routes.account_url }}">← {{ 'customer.account.title' | t }}</a>
+  </div>
+
+  <div class="acct-wrap">
+    <table class="acct-table">
+      <thead><tr><th>{{ 'customer.order.product' | t }}</th><th>{{ 'customer.order.sku' | t }}</th><th style="text-align:right;">{{ 'customer.order.price' | t }}</th><th style="text-align:right;">{{ 'customer.order.quantity' | t }}</th><th style="text-align:right;">{{ 'customer.order.total' | t }}</th></tr></thead>
+      <tbody>
+        {%- for line in order.line_items -%}
+          <tr>
+            <td><a href="{{ line.product.url }}">{{ line.title }}</a></td>
+            <td class="mono">{{ line.sku }}</td>
+            <td style="text-align:right;" class="mono">{{ line.price | money }}</td>
+            <td style="text-align:right;" class="mono">{{ line.quantity }}</td>
+            <td style="text-align:right;" class="mono">{{ line.final_line_price | money }}</td>
+          </tr>
+        {%- endfor -%}
+      </tbody>
+      <tfoot>
+        <tr><td colspan="4" style="text-align:right;color:var(--muted);">Subtotal</td><td style="text-align:right;" class="mono">{{ order.line_items_subtotal_price | money }}</td></tr>
+        {%- for shipping in order.shipping_methods -%}
+        <tr><td colspan="4" style="text-align:right;color:var(--muted);">Shipping</td><td style="text-align:right;" class="mono">{{ shipping.price | money }}</td></tr>
+        {%- endfor -%}
+        <tr><td colspan="4" style="text-align:right;font-weight:600;">{{ 'customer.order.total' | t }}</td><td style="text-align:right;font-weight:700;" class="mono">{{ order.total_price | money }}</td></tr>
+      </tfoot>
+    </table>
+  </div>
+  <div style="height:60px;"></div>
+</div>
+
+{% schema %}
+{ "name": "Order" }
+{% endschema %}

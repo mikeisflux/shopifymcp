@@ -1,0 +1,15 @@
+<style>
+  .page-wrap { max-width: 760px; margin-inline: auto; padding-block: clamp(30px, 5vw, 60px); }
+  .page-wrap h1 { font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; font-size: clamp(34px, 6vw, 60px); line-height: .9; margin: 0 0 26px; }
+  .page-wrap .rte { color: var(--bone); line-height: 1.75; font-size: 16px; }
+  .page-wrap .rte h2 { font-size: 26px; margin-top: 1.6em; }
+  .page-wrap .rte p { margin: 0 0 1.1em; color: var(--muted); }
+</style>
+<div class="wrap page-wrap">
+  <h1>{{ page.title }}</h1>
+  <div class="rte">{{ page.content }}</div>
+</div>
+
+{% schema %}
+{ "name": "Page" }
+{% endschema %}

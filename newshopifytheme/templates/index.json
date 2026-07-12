@@ -1,0 +1,81 @@
+{
+  "sections": {
+    "hero": {
+      "type": "hero",
+      "settings": {
+        "eyebrow": "New drop · Dead Sexy #2 out now",
+        "title": "Variant covers, not vanilla.",
+        "text": "Independent comics with a shelf full of covers, prints, digitals and collectibles. Pick your cover. Chase the exclusives.",
+        "cta_label": "Shop the drop",
+        "cta_link": "shopify://collections/dead-sexy-2-books",
+        "cta2_label": "Browse series",
+        "cta2_link": "#series",
+        "collection": "dead-sexy-2-books",
+        "stack_tag": "Out now",
+        "stat_variants": "400+",
+        "stat_artists": "20+"
+      }
+    },
+    "series": {
+      "type": "series-grid",
+      "blocks": {
+        "s1": { "type": "series", "settings": { "title": "Boobs", "collection": "boobs-1-books" } },
+        "s2": { "type": "series", "settings": { "title": "Dead Sexy", "collection": "dead-sexy-2-books" } },
+        "s3": { "type": "series", "settings": { "title": "Star Whores", "collection": "star-whores-1-books" } },
+        "s4": { "type": "series", "settings": { "title": "Surrender the Booty", "collection": "surrender-the-booty-1-prints" } },
+        "s5": { "type": "series", "settings": { "title": "The Mandawhorian", "collection": "the-mandawhorian-1-prints" } },
+        "s6": { "type": "series", "settings": { "title": "G-Busters", "collection": "g-busters-2-prints" } },
+        "s7": { "type": "series", "settings": { "title": "X-FEM", "collection": "x-fem-1-prints" } },
+        "s8": { "type": "series", "settings": { "title": "Lady Darth", "collection": "lady-darth-1-prints" } },
+        "s9": { "type": "series", "settings": { "title": "MMPR", "collection": "mmpr-1-prints" } },
+        "s10": { "type": "series", "settings": { "title": "Sweeney Todd", "collection": "sweeney-todd-1-prints" } },
+        "s11": { "type": "series", "settings": { "title": "Puppet", "collection": "puppet-1-prints" } },
+        "s12": { "type": "series", "settings": { "title": "Granger", "collection": "granger-1-prints" } }
+      },
+      "block_order": ["s1","s2","s3","s4","s5","s6","s7","s8","s9","s10","s11","s12"],
+      "settings": { "eyebrow": "One shelf per title", "title": "Shop by series", "link": "shopify://collections" }
+    },
+    "latest": {
+      "type": "cover-grid",
+      "settings": {
+        "eyebrow": "Hot off the press",
+        "title": "Latest covers",
+        "collection": "best-selling",
+        "count": 12,
+        "show_filters": true
+      }
+    },
+    "exclusives": {
+      "type": "exclusives-rail",
+      "settings": {
+        "eyebrow": "Numbered & limited",
+        "title": "Exclusives & LTD editions",
+        "collection": "boobs-2-books",
+        "count": 10
+      }
+    },
+    "artists": {
+      "type": "artists",
+      "blocks": {
+        "a1": { "type": "artist", "settings": { "name": "Mindy Wheeler", "collection": "mindy-wheeler" } },
+        "a2": { "type": "artist", "settings": { "name": "Shakamike", "collection": "shakamike" } },
+        "a3": { "type": "artist", "settings": { "name": "Dustin Tyree", "collection": "dustin-tyree" } },
+        "a4": { "type": "artist", "settings": { "name": "RB White", "collection": "rb-white" } },
+        "a5": { "type": "artist", "settings": { "name": "Julian Aguilera", "collection": "julian-aguilera" } },
+        "a6": { "type": "artist", "settings": { "name": "Alfret Le", "collection": "alfret-le" } },
+        "a7": { "type": "artist", "settings": { "name": "Eduardo Garcia", "collection": "eduardo-garcia" } },
+        "a8": { "type": "artist", "settings": { "name": "Thomas Tenney", "collection": "thomas-tenney" } }
+      },
+      "block_order": ["a1","a2","a3","a4","a5","a6","a7","a8"],
+      "settings": { "eyebrow": "The pencils behind the covers", "title": "Featured artists" }
+    },
+    "newsletter": {
+      "type": "newsletter",
+      "settings": {
+        "title": "Never miss a drop.",
+        "text": "New issues, variant reveals, and LTD exclusives sell fast. Get the heads-up before they hit the shelf."
+      }
+    }
+  },
+  "order": ["hero", "series", "latest", "exclusives", "artists", "newsletter"]
+}

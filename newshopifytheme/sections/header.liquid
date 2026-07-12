@@ -1,0 +1,163 @@
+{%- liquid
+  assign logo = settings.logo
+-%}
+<style>
+  .announce {
+    background: var(--red); color: #fff;
+    font-family: var(--f-mono); font-size: 12px; letter-spacing: .06em;
+    text-align: center; padding: 7px 12px;
+  }
+  .announce a { text-decoration: underline; text-underline-offset: 2px; }
+
+  .site-header {
+    position: sticky; top: 0; z-index: 100;
+    background: color-mix(in srgb, var(--ink) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--hair);
+    transition: box-shadow .2s, background .2s;
+  }
+  .site-header.is-stuck { box-shadow: 0 10px 30px -18px rgba(0,0,0,.9); }
+  .header-bar {
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 20px;
+    height: 64px;
+  }
+  .logo {
+    font-family: var(--f-display); font-weight: 800; font-stretch: condensed;
+    font-size: 26px; letter-spacing: .02em; text-transform: uppercase; color: var(--bone);
+    display: inline-flex; align-items: center; gap: 8px; line-height: 1;
+  }
+  .logo b { color: var(--red); }
+  .logo img { max-height: 34px; width: auto; }
+
+  .nav { display: flex; justify-content: center; gap: 4px; }
+  .nav a {
+    font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); padding: 8px 12px; border-radius: var(--radius);
+    position: relative; transition: color .15s;
+  }
+  .nav a:hover, .nav a[aria-current="page"] { color: var(--bone); }
+  .nav a::after {
+    content: ""; position: absolute; left: 12px; right: 12px; bottom: 4px; height: 2px;
+    background: var(--red); transform: scaleX(0); transform-origin: left; transition: transform .18s ease;
+  }
+  .nav a:hover::after, .nav a[aria-current="page"]::after { transform: scaleX(1); }
+
+  .header-actions { display: flex; align-items: center; gap: 6px; justify-self: end; }
+  .icon-btn {
+    background: transparent; border: 0; color: var(--bone); padding: 9px; border-radius: var(--radius);
+    display: inline-flex; align-items: center; justify-content: center; position: relative;
+    transition: color .15s, background .15s;
+  }
+  .icon-btn:hover { color: var(--red); background: var(--ink-1); }
+  .icon-btn svg { width: 20px; height: 20px; }
+  .cart-count {
+    position: absolute; top: 2px; right: 0; background: var(--red); color: #fff;
+    font-family: var(--f-mono); font-size: 10px; font-weight: 700; min-width: 16px; height: 16px;
+    border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px;
+  }
+  .menu-btn { display: none; }
+
+  .search-overlay {
+    position: fixed; inset: 0; z-index: 150; background: color-mix(in srgb, var(--ink) 92%, transparent);
+    backdrop-filter: blur(8px); padding-top: 14vh;
+  }
+  .search-overlay form { width: min(100% - 3rem, 720px); margin-inline: auto; }
+  .search-overlay .field { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid var(--red); padding-bottom: 10px; }
+  .search-overlay input {
+    flex: 1; background: transparent; border: 0; color: var(--bone);
+    font-family: var(--f-display); font-stretch: condensed; font-size: clamp(28px, 6vw, 52px);
+    text-transform: uppercase; letter-spacing: -.01em;
+  }
+  .search-overlay input:focus { outline: none; }
+  .search-overlay input::placeholder { color: var(--faint); }
+  .search-overlay .hint { font-family: var(--f-mono); font-size: 12px; color: var(--muted); margin-top: 14px; letter-spacing: .06em; }
+
+  @media (max-width: 900px) {
+    .menu-btn { display: inline-flex; }
+    .nav {
+      position: fixed; inset: 0 0 0 auto; width: min(84vw, 340px);
+      background: var(--ink-1); border-left: 1px solid var(--hair);
+      flex-direction: column; justify-content: flex-start; gap: 2px; padding: 78px 18px 24px;
+      transform: translateX(100%); transition: transform .24s ease; z-index: 140;
+    }
+    .nav.is-open { transform: translateX(0); }
+    .nav a { font-size: 16px; padding: 14px 12px; border-bottom: 1px solid var(--hair); border-radius: 0; }
+    .nav a::after { display: none; }
+    .header-bar { grid-template-columns: auto auto 1fr auto; }
+    .logo { font-size: 22px; }
+  }
+  body.nav-locked { overflow: hidden; }
+</style>
+
+{%- if section.settings.announcement != blank -%}
+  <div class="announce">
+    {%- if section.settings.announcement_link != blank -%}
+      <a href="{{ section.settings.announcement_link }}">{{ section.settings.announcement }}</a>
+    {%- else -%}
+      {{ section.settings.announcement }}
+    {%- endif -%}
+  </div>
+{%- endif -%}
+
+<header class="site-header" data-header>
+  <div class="wrap header-bar">
+    <button class="icon-btn menu-btn" data-menu-toggle aria-expanded="false" aria-controls="SiteNav" aria-label="{{ 'accessibility.menu' | t }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+
+    <a href="{{ routes.root_url }}" class="logo">
+      {%- if logo != blank -%}
+        <img src="{{ logo | image_url: width: 240 }}" alt="{{ shop.name }}" width="120">
+      {%- else -%}
+        {{ settings.logo_text | default: shop.name }}<b>.</b>
+      {%- endif -%}
+    </a>
+
+    <nav class="nav" id="SiteNav" aria-label="Primary">
+      <button class="icon-btn menu-btn" data-menu-close aria-label="{{ 'accessibility.close' | t }}" style="position:absolute;top:16px;right:14px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      {%- for link in linklists[section.settings.menu].links -%}
+        <a href="{{ link.url }}" {% if link.active %}aria-current="page"{% endif %}>{{ link.title }}</a>
+      {%- endfor -%}
+    </nav>
+
+    <div class="header-actions">
+      <button class="icon-btn" data-search-toggle aria-label="{{ 'accessibility.search' | t }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+      </button>
+      <a href="{{ routes.account_url }}" class="icon-btn" aria-label="{{ 'accessibility.account' | t }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      </a>
+      <a href="{{ routes.cart_url }}" class="icon-btn" aria-label="{{ 'accessibility.cart' | t }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>
+        {%- if cart.item_count > 0 -%}<span class="cart-count">{{ cart.item_count }}</span>{%- endif -%}
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="search-overlay" id="SearchOverlay" hidden>
+  <form action="{{ routes.search_url }}" method="get" role="search">
+    <div class="field">
+      <svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" width="30" height="30"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+      <input type="search" name="q" placeholder="{{ 'general.search.placeholder' | t }}" autocomplete="off">
+      <button type="button" class="icon-btn" data-search-close aria-label="{{ 'accessibility.close' | t }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <p class="hint">Try “Dead Sexy”, “Star Whores”, an issue code like “DS2-14”, or an artist.</p>
+  </form>
+</div>
+
+{% schema %}
+{
+  "name": "Header",
+  "settings": [
+    { "type": "link_list", "id": "menu", "label": "Menu", "default": "main-menu" },
+    { "type": "header", "content": "Announcement bar" },
+    { "type": "text", "id": "announcement", "label": "Text", "default": "Free US shipping over $75 · New drop: Sweeney Todd #1 is live" },
+    { "type": "url", "id": "announcement_link", "label": "Link" }
+  ]
+}
+{% endschema %}

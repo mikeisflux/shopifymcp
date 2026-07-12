@@ -1,0 +1,20 @@
+<style>
+  .article { max-width: 760px; margin-inline: auto; padding-block: clamp(30px, 5vw, 60px); }
+  .article time { font-family: var(--f-mono); font-size: 12px; color: var(--red); letter-spacing: .1em; text-transform: uppercase; }
+  .article h1 { font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; font-size: clamp(34px, 6vw, 60px); line-height: .9; margin: 12px 0 8px; }
+  .article .byline { font-family: var(--f-mono); font-size: 12px; color: var(--muted); margin-bottom: 26px; }
+  .article .hero-img { border-radius: var(--radius); overflow: hidden; margin-bottom: 30px; border: 1px solid var(--hair); }
+  .article .rte { color: var(--bone); line-height: 1.8; font-size: 16.5px; }
+  .article .rte p { color: var(--muted); margin: 0 0 1.2em; }
+</style>
+<article class="wrap article">
+  <time datetime="{{ article.published_at | date: '%Y-%m-%d' }}">{{ article.published_at | date: '%B %d, %Y' }}</time>
+  <h1>{{ article.title }}</h1>
+  {%- if article.author != blank -%}<p class="byline">{{ 'blogs.article.by' | t: author: article.author }}</p>{%- endif -%}
+  {%- if article.image -%}<div class="hero-img"><img src="{{ article.image | image_url: width: 1200 }}" alt="{{ article.title | escape }}"></div>{%- endif -%}
+  <div class="rte">{{ article.content }}</div>
+</article>
+
+{% schema %}
+{ "name": "Article" }
+{% endschema %}

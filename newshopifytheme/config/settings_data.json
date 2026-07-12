@@ -1,0 +1,26 @@
+{
+  "current": {
+    "color_bg": "#14110f",
+    "color_surface": "#1b1714",
+    "color_card": "#241f1b",
+    "color_hairline": "#322b25",
+    "color_text": "#ece6d9",
+    "color_accent": "#ff2e43",
+    "color_gold": "#e7b23c",
+    "page_width": 1320,
+    "logo_text": "DIVINITY"
+  },
+  "presets": {
+    "Divinity — Newsstand": {
+      "color_bg": "#14110f",
+      "color_surface": "#1b1714",
+      "color_card": "#241f1b",
+      "color_hairline": "#322b25",
+      "color_text": "#ece6d9",
+      "color_accent": "#ff2e43",
+      "color_gold": "#e7b23c",
+      "page_width": 1320,
+      "logo_text": "DIVINITY"
+    }
+  }
+}

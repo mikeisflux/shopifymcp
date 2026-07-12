@@ -1,0 +1,47 @@
+[
+  {
+    "name": "theme_info",
+    "theme_name": "Divinity — Newsstand",
+    "theme_version": "1.0.0",
+    "theme_author": "Divinity Comics",
+    "theme_documentation_url": "https://divinitycomics.com",
+    "theme_support_url": "https://divinitycomics.com"
+  },
+  {
+    "name": "Colours",
+    "settings": [
+      { "type": "header", "content": "Ground & surfaces" },
+      { "type": "color", "id": "color_bg", "label": "Page background", "default": "#14110f" },
+      { "type": "color", "id": "color_surface", "label": "Raised surface", "default": "#1b1714" },
+      { "type": "color", "id": "color_card", "label": "Card background", "default": "#241f1b" },
+      { "type": "color", "id": "color_hairline", "label": "Hairline / border", "default": "#322b25" },
+      { "type": "color", "id": "color_text", "label": "Text", "default": "#ece6d9" },
+      { "type": "header", "content": "Accents" },
+      { "type": "color", "id": "color_accent", "label": "Accent (comic red)", "default": "#ff2e43" },
+      { "type": "color", "id": "color_gold", "label": "Exclusive / LTD tier", "default": "#e7b23c" }
+    ]
+  },
+  {
+    "name": "Layout",
+    "settings": [
+      { "type": "range", "id": "page_width", "label": "Max content width", "min": 1120, "max": 1520, "step": 40, "unit": "px", "default": 1320 }
+    ]
+  },
+  {
+    "name": "Brand",
+    "settings": [
+      { "type": "image_picker", "id": "logo", "label": "Logo image (optional)" },
+      { "type": "text", "id": "logo_text", "label": "Logo text (used if no image)", "default": "DIVINITY" },
+      { "type": "image_picker", "id": "favicon", "label": "Favicon" }
+    ]
+  },
+  {
+    "name": "Social",
+    "settings": [
+      { "type": "text", "id": "social_instagram", "label": "Instagram URL" },
+      { "type": "text", "id": "social_facebook", "label": "Facebook URL" },
+      { "type": "text", "id": "social_youtube", "label": "YouTube URL" },
+      { "type": "text", "id": "social_x", "label": "X / Twitter URL" }
+    ]
+  }
+]

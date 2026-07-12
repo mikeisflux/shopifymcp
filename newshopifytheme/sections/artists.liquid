@@ -1,0 +1,63 @@
+<style>
+  .artists-row { display: flex; flex-wrap: wrap; gap: 10px; }
+  .artist-chip {
+    display: inline-flex; align-items: center; gap: 9px; padding: 8px 14px 8px 8px;
+    border: 1px solid var(--hair); border-radius: 999px; background: var(--ink-1); transition: border-color .15s, transform .15s;
+  }
+  .artist-chip:hover { border-color: var(--red); transform: translateY(-2px); }
+  .artist-chip .dot {
+    width: 26px; height: 26px; border-radius: 999px; display: grid; place-items: center;
+    background: var(--red); color: #fff; font-family: var(--f-display); font-weight: 800; font-size: 12px; text-transform: uppercase;
+  }
+  .artist-chip span { font-size: 13.5px; font-weight: 600; color: var(--bone); }
+  .artist-chip small { font-family: var(--f-mono); font-size: 10px; color: var(--faint); }
+</style>
+
+<section class="section section--tight">
+  <div class="wrap">
+    <div class="section-head">
+      <div>
+        {%- if section.settings.eyebrow != blank -%}<span class="eyebrow">{{ section.settings.eyebrow }}</span>{%- endif -%}
+        <h2>{{ section.settings.title }}</h2>
+      </div>
+    </div>
+    <div class="artists-row">
+      {%- for block in section.blocks -%}
+        {%- assign coll = collections[block.settings.collection] -%}
+        <a class="artist-chip" href="{{ coll.url | default: '#' }}" {{ block.shopify_attributes }}>
+          <span class="dot">{{ block.settings.name | slice: 0, 1 }}</span>
+          <span>{{ block.settings.name }}</span>
+          {%- if coll.all_products_count > 0 -%}<small>{{ coll.all_products_count }}</small>{%- endif -%}
+        </a>
+      {%- endfor -%}
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Artists",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "The pencils behind the covers" },
+    { "type": "text", "id": "title", "label": "Heading", "default": "Featured artists" }
+  ],
+  "blocks": [
+    { "type": "artist", "name": "Artist", "settings": [
+      { "type": "text", "id": "name", "label": "Name" },
+      { "type": "collection", "id": "collection", "label": "Collection" }
+    ]}
+  ],
+  "presets": [
+    { "name": "Artists", "blocks": [
+      { "type": "artist", "settings": { "name": "Mindy Wheeler", "collection": "mindy-wheeler" } },
+      { "type": "artist", "settings": { "name": "Shakamike", "collection": "shakamike" } },
+      { "type": "artist", "settings": { "name": "Dustin Tyree", "collection": "dustin-tyree" } },
+      { "type": "artist", "settings": { "name": "RB White", "collection": "rb-white" } },
+      { "type": "artist", "settings": { "name": "Julian Aguilera", "collection": "julian-aguilera" } },
+      { "type": "artist", "settings": { "name": "Alfret Le", "collection": "alfret-le" } },
+      { "type": "artist", "settings": { "name": "Eduardo Garcia", "collection": "eduardo-garcia" } },
+      { "type": "artist", "settings": { "name": "Narcelio Sousa", "collection": "narcelio-sousa" } }
+    ]}
+  ]
+}
+{% endschema %}

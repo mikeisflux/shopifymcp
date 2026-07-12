@@ -1,0 +1,53 @@
+<style>
+  .signup {
+    background:
+      radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--red) 22%, transparent), transparent 55%),
+      var(--ink-1);
+    border: 1px solid var(--hair); border-radius: var(--radius);
+    padding: clamp(28px, 5vw, 56px);
+    display: grid; grid-template-columns: 1.1fr 1fr; gap: 30px; align-items: center;
+  }
+  .signup h2 { font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; font-size: clamp(28px, 4vw, 46px); line-height: .95; margin: 0; }
+  .signup p { color: var(--muted); margin: 12px 0 0; max-width: 42ch; }
+  .signup form { display: flex; gap: 10px; }
+  .signup input[type=email] {
+    flex: 1; background: var(--ink); border: 1px solid var(--hair); border-radius: var(--radius);
+    color: var(--bone); padding: 13px 15px; font-family: var(--f-mono); font-size: 14px;
+  }
+  .signup input::placeholder { color: var(--faint); }
+  .signup .ok { color: var(--good); font-family: var(--f-mono); font-size: 13px; margin-top: 10px; }
+  @media (max-width: 760px) { .signup { grid-template-columns: 1fr; } }
+</style>
+
+<section class="section">
+  <div class="wrap">
+    <div class="signup">
+      <div>
+        <span class="eyebrow">Pull list</span>
+        <h2>{{ section.settings.title }}</h2>
+        <p>{{ section.settings.text }}</p>
+      </div>
+      <div>
+        {%- form 'customer' -%}
+          <input type="hidden" name="contact[tags]" value="newsletter">
+          <div style="display:flex;gap:10px;">
+            <input type="email" name="contact[email]" placeholder="{{ 'general.newsletter.placeholder' | t }}" required aria-label="Email">
+            <button type="submit" class="btn btn--primary">{{ 'general.newsletter.submit' | t }}</button>
+          </div>
+          {%- if form.posted_successfully? -%}<p class="ok">{{ 'general.newsletter.success' | t }}</p>{%- endif -%}
+        {%- endform -%}
+      </div>
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Newsletter",
+  "settings": [
+    { "type": "text", "id": "title", "label": "Heading", "default": "Never miss a drop." },
+    { "type": "textarea", "id": "text", "label": "Text", "default": "New issues, variant reveals, and LTD exclusives sell fast. Get the heads-up before they hit the shelf." }
+  ],
+  "presets": [{ "name": "Newsletter" }]
+}
+{% endschema %}

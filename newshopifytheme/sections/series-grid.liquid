@@ -1,0 +1,100 @@
+{%- comment -%} Series-first navigation: replaces the 60-collection sprawl with a tidy tile per title. {%- endcomment -%}
+<style>
+  .series-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
+  .series-tile {
+    position: relative; display: block; border-radius: var(--radius); overflow: hidden;
+    aspect-ratio: 3/4; background: var(--ink-2); border: 1px solid var(--hair);
+    transition: border-color .16s, transform .16s;
+  }
+  .series-tile:hover { border-color: var(--red); transform: translateY(-3px); }
+  .series-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .82; transition: transform .45s, opacity .2s; }
+  .series-tile:hover img { transform: scale(1.06); opacity: 1; }
+  .series-tile::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(10,8,7,.92) 12%, rgba(10,8,7,.15) 55%, transparent); }
+  .series-tile .cap { position: absolute; inset: auto 0 0 0; z-index: 2; padding: 12px 12px 13px; }
+  .series-tile .cap h3 {
+    font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase;
+    font-size: 17px; line-height: .95; margin: 0; color: #fff; letter-spacing: -.005em; text-wrap: balance;
+  }
+  .series-tile .cap span { font-family: var(--f-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  @media (max-width: 1080px) { .series-grid { grid-template-columns: repeat(4, 1fr); } }
+  @media (max-width: 680px) { .series-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; } .series-tile .cap h3 { font-size: 14px; } }
+  @media (max-width: 420px) { .series-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+
+<section class="section" id="series">
+  <div class="wrap">
+    <div class="section-head">
+      <div>
+        {%- if section.settings.eyebrow != blank -%}<span class="eyebrow">{{ section.settings.eyebrow }}</span>{%- endif -%}
+        <h2>{{ section.settings.title }}</h2>
+      </div>
+      {%- if section.settings.link != blank -%}<a class="link-more" href="{{ section.settings.link }}">All collections →</a>{%- endif -%}
+    </div>
+
+    <div class="series-grid">
+      {%- for block in section.blocks -%}
+        {%- liquid
+          assign coll = collections[block.settings.collection]
+          assign img = coll.image
+          if img == blank and coll.products.first.featured_media != blank
+            assign img = coll.products.first.featured_media
+          endif
+          assign tile_url = coll.url
+          if tile_url == blank and block.settings.collection != blank
+            assign tile_url = block.settings.collection | prepend: '/collections/'
+          endif
+        -%}
+        <a class="series-tile" href="{{ tile_url | default: '#' }}" {{ block.shopify_attributes }}>
+          {%- if img != blank -%}
+            <img src="{{ img | image_url: width: 400 }}" alt="{{ block.settings.title | escape }}" loading="lazy" width="300" height="400">
+          {%- endif -%}
+          <div class="cap">
+            <h3>{{ block.settings.title | default: coll.title }}</h3>
+            <span>{%- if coll.all_products_count > 0 -%}{{ coll.all_products_count }} items{%- else -%}Explore{%- endif -%}</span>
+          </div>
+        </a>
+      {%- endfor -%}
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Series grid",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "One shelf per title" },
+    { "type": "text", "id": "title", "label": "Heading", "default": "Shop by series" },
+    { "type": "url", "id": "link", "label": "View-all link" }
+  ],
+  "blocks": [
+    {
+      "type": "series",
+      "name": "Series",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Display name" },
+        { "type": "collection", "id": "collection", "label": "Collection" }
+      ]
+    }
+  ],
+  "max_blocks": 18,
+  "presets": [
+    {
+      "name": "Series grid",
+      "blocks": [
+        { "type": "series", "settings": { "title": "Boobs", "collection": "boobs-1-books" } },
+        { "type": "series", "settings": { "title": "Dead Sexy", "collection": "dead-sexy-2-books" } },
+        { "type": "series", "settings": { "title": "Star Whores", "collection": "star-whores-1-books" } },
+        { "type": "series", "settings": { "title": "Surrender the Booty", "collection": "surrender-the-booty-1-prints" } },
+        { "type": "series", "settings": { "title": "The Mandawhorian", "collection": "the-mandawhorian-1-prints" } },
+        { "type": "series", "settings": { "title": "G-Busters", "collection": "g-busters-2-prints" } },
+        { "type": "series", "settings": { "title": "X-FEM", "collection": "x-fem-1-prints" } },
+        { "type": "series", "settings": { "title": "Lady Darth", "collection": "lady-darth-1-prints" } },
+        { "type": "series", "settings": { "title": "MMPR", "collection": "mmpr-1-prints" } },
+        { "type": "series", "settings": { "title": "Sweeney Todd", "collection": "sweeney-todd-1-prints" } },
+        { "type": "series", "settings": { "title": "Puppet", "collection": "puppet-1-prints" } },
+        { "type": "series", "settings": { "title": "Granger", "collection": "granger-1-prints" } }
+      ]
+    }
+  ]
+}
+{% endschema %}

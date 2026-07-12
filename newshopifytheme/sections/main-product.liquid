@@ -1,0 +1,190 @@
+{%- liquid
+  assign product = product
+  assign current = product.selected_or_first_available_variant
+  assign on_sale = false
+  if current.compare_at_price > current.price
+    assign on_sale = true
+  endif
+-%}
+<style>
+  .pdp { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(24px, 4vw, 56px); padding-block: clamp(28px, 4vw, 48px); align-items: start; }
+  .pdp-gallery { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 12px; }
+  .pdp-main {
+    aspect-ratio: 2/3; background: var(--ink-2); border: 1px solid var(--hair); border-radius: var(--radius);
+    overflow: hidden; position: relative;
+  }
+  .pdp-main img { width: 100%; height: 100%; object-fit: contain; }
+  .pdp-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(66px,1fr)); gap: 8px; }
+  .pdp-thumbs button {
+    aspect-ratio: 2/3; border: 1px solid var(--hair); border-radius: 3px; overflow: hidden; padding: 0; background: var(--ink-2);
+  }
+  .pdp-thumbs button[aria-current="true"] { border-color: var(--red); }
+  .pdp-thumbs img { width: 100%; height: 100%; object-fit: cover; }
+
+  .pdp-info { max-width: 480px; }
+  .pdp-info .vendor { font-family: var(--f-mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+  .pdp-title { font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; font-size: clamp(30px, 4.5vw, 52px); line-height: .92; letter-spacing: -.01em; margin: 8px 0 14px; }
+  .pdp-badges { display: flex; gap: 6px; margin-bottom: 14px; }
+  .pdp-price { display: flex; align-items: baseline; gap: 12px; font-family: var(--f-mono); }
+  .pdp-price .now { font-size: 30px; font-weight: 700; color: var(--bone); font-variant-numeric: tabular-nums; }
+  .pdp-price .was { font-size: 18px; color: var(--faint); text-decoration: line-through; }
+  .pdp-price .save { font-size: 12px; color: var(--red); border: 1px solid var(--red); border-radius: 3px; padding: 3px 7px; text-transform: uppercase; letter-spacing: .06em; }
+
+  .pdp-option { margin-top: 22px; }
+  .pdp-option > label { display: block; font-family: var(--f-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 9px; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+  .swatches input { position: absolute; opacity: 0; pointer-events: none; }
+  .swatches label {
+    font-family: var(--f-mono); font-size: 13px; letter-spacing: .04em; padding: 9px 14px; border-radius: var(--radius);
+    border: 1px solid var(--hair); color: var(--bone); cursor: pointer; transition: border-color .14s, background .14s;
+  }
+  .swatches label:hover { border-color: var(--muted); }
+  .swatches input:checked + label { border-color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+  .swatches input:disabled + label { opacity: .4; text-decoration: line-through; cursor: not-allowed; }
+
+  .buy-row { display: flex; gap: 10px; margin-top: 26px; }
+  .qty { display: inline-flex; align-items: center; border: 1px solid var(--hair); border-radius: var(--radius); }
+  .qty button { background: transparent; border: 0; color: var(--bone); width: 42px; height: 48px; font-size: 18px; }
+  .qty input { width: 44px; height: 48px; text-align: center; background: transparent; border: 0; color: var(--bone); font-family: var(--f-mono); font-size: 15px; }
+  .qty input::-webkit-outer-spin-button, .qty input::-webkit-inner-spin-button { -webkit-appearance: none; }
+  .buy-row .btn { flex: 1; padding-block: 16px; }
+
+  .pdp-meta { margin-top: 20px; display: flex; flex-direction: column; gap: 8px; font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+  .pdp-meta div { display: flex; gap: 10px; }
+  .pdp-meta b { color: var(--bone); font-weight: 600; }
+  .pdp-desc { margin-top: 30px; padding-top: 26px; border-top: 1px solid var(--hair); }
+  .pdp-desc h3 { font-family: var(--f-mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin: 0 0 12px; }
+  .pdp-desc .rte { color: var(--muted); line-height: 1.7; }
+  @media (max-width: 860px) { .pdp { grid-template-columns: 1fr; } .pdp-gallery { position: static; } }
+</style>
+
+<div class="wrap pdp">
+  <div class="pdp-gallery">
+    <div class="pdp-main" id="PdpMain">
+      {%- if current.featured_media or product.featured_media -%}
+        {%- assign m = current.featured_media | default: product.featured_media -%}
+        <img src="{{ m | image_url: width: 900 }}" alt="{{ product.title | escape }}" id="PdpMainImg" width="600" height="900">
+      {%- else -%}{{ product | placeholder_svg_tag }}{%- endif -%}
+    </div>
+    {%- if product.media.size > 1 -%}
+      <div class="pdp-thumbs">
+        {%- for media in product.media -%}
+          <button type="button" aria-current="{% if forloop.first %}true{% else %}false{% endif %}"
+            onclick="var i=document.getElementById('PdpMainImg'); if(i){i.src='{{ media | image_url: width: 900 }}';} document.querySelectorAll('.pdp-thumbs button').forEach(function(b){b.setAttribute('aria-current','false')}); this.setAttribute('aria-current','true');">
+            <img src="{{ media | image_url: width: 160 }}" alt="{{ media.alt | escape | default: product.title }}" loading="lazy">
+          </button>
+        {%- endfor -%}
+      </div>
+    {%- endif -%}
+  </div>
+
+  <div class="pdp-info">
+    <span class="vendor">{{ product.vendor | default: shop.name }}</span>
+    <h1 class="pdp-title">{{ product.title }}</h1>
+
+    <div class="pdp-badges">
+      {%- if product.tags contains 'LTD' or product.title contains 'LTD' or product.title contains 'Exclusive' -%}<span class="badge badge--ltd">Limited edition</span>{%- endif -%}
+      {%- if product.tags contains 'digital' or product.title contains 'Digital' -%}<span class="badge badge--digital">Digital download</span>{%- endif -%}
+      {%- unless product.available -%}<span class="badge badge--sold">Sold out</span>{%- endunless -%}
+    </div>
+
+    {%- form 'product', product, id: 'ProductForm', novalidate: 'novalidate' -%}
+      <div class="pdp-price" id="PdpPrice">
+        <span class="now" data-price>{{ current.price | money }}</span>
+        {%- if on_sale -%}
+          <span class="was" data-compare>{{ current.compare_at_price | money }}</span>
+          <span class="save">Save {{ current.compare_at_price | minus: current.price | times: 100.0 | divided_by: current.compare_at_price | round }}%</span>
+        {%- endif -%}
+      </div>
+
+      {%- unless product.has_only_default_variant -%}
+        {%- for option in product.options_with_values -%}
+          <div class="pdp-option">
+            <label>{{ option.name }}</label>
+            <div class="swatches">
+              {%- for value in option.values -%}
+                {%- assign oid = 'opt-' | append: option.position | append: '-' | append: forloop.index -%}
+                <input type="radio" id="{{ oid }}" name="option{{ option.position }}" value="{{ value | escape }}"
+                  {% if option.selected_value == value %}checked{% endif %} data-option-selector>
+                <label for="{{ oid }}">{{ value }}</label>
+              {%- endfor -%}
+            </div>
+          </div>
+        {%- endfor -%}
+      {%- endunless -%}
+
+      <select name="id" id="VariantSelect" class="visually-hidden" aria-hidden="true">
+        {%- for variant in product.variants -%}
+          <option value="{{ variant.id }}" {% if variant == current %}selected{% endif %} {% unless variant.available %}disabled{% endunless %}
+            data-price="{{ variant.price | money }}" data-compare="{{ variant.compare_at_price | money }}" data-available="{{ variant.available }}">
+            {{ variant.title }}
+          </option>
+        {%- endfor -%}
+      </select>
+
+      <div class="buy-row">
+        <div class="qty">
+          <button type="button" data-qty="down" aria-label="Decrease">–</button>
+          <input type="number" name="quantity" value="1" min="1" aria-label="{{ 'products.product.quantity' | t }}">
+          <button type="button" data-qty="up" aria-label="Increase">+</button>
+        </div>
+        <button type="submit" name="add" class="btn btn--primary" id="AddBtn" {% unless product.available %}disabled{% endunless %}>
+          {%- if product.available -%}{{ 'products.product.add_to_cart' | t }}{%- else -%}{{ 'products.product.sold_out' | t }}{%- endif -%}
+        </button>
+      </div>
+    {%- endform -%}
+
+    <div class="pdp-meta">
+      {%- if current.sku != blank -%}<div><span>Item code</span><b>{{ current.sku }}</b></div>{%- endif -%}
+      {%- if product.type != blank -%}<div><span>Format</span><b>{{ product.type }}</b></div>{%- endif -%}
+      {%- if product.variants.size > 1 -%}<div><span>Covers</span><b>{{ product.variants.size }} available</b></div>{%- endif -%}
+    </div>
+
+    {%- if product.description != blank -%}
+      <div class="pdp-desc">
+        <h3>{{ 'products.product.description' | t }}</h3>
+        <div class="rte">{{ product.description }}</div>
+      </div>
+    {%- endif -%}
+  </div>
+</div>
+
+<script>
+  (function () {
+    var form = document.getElementById('ProductForm');
+    if (!form) return;
+    var select = document.getElementById('VariantSelect');
+    var selectors = form.querySelectorAll('[data-option-selector]');
+    function chosen() {
+      var opts = [];
+      form.querySelectorAll('.swatches').forEach(function (grp) {
+        var c = grp.querySelector('input:checked'); if (c) opts.push(c.value);
+      });
+      return opts;
+    }
+    function sync() {
+      if (!selectors.length) return;
+      var opts = chosen();
+      var target = variants.find(function (v) { return v.options.join(' / ') === opts.join(' / '); });
+      if (!target) return;
+      select.value = target.id;
+      var priceEl = form.querySelector('[data-price]');
+      var compEl = form.querySelector('[data-compare]');
+      if (priceEl) priceEl.textContent = target.priceStr;
+      var addBtn = document.getElementById('AddBtn');
+      if (addBtn) {
+        addBtn.disabled = !target.available;
+        addBtn.textContent = target.available ? {{ 'products.product.add_to_cart' | t | json }} : {{ 'products.product.sold_out' | t | json }};
+      }
+      if (target.image) { var mi = document.getElementById('PdpMainImg'); if (mi) mi.src = target.image; }
+    }
+    var variants = {{ product.variants | json }}.map(function (v) {
+      return { id: v.id, options: v.options, available: v.available, priceStr: (v.price/100).toLocaleString(undefined,{style:'currency',currency:{{ shop.currency | json }}}), image: v.featured_image ? v.featured_image.src : null };
+    });
+    selectors.forEach(function (s) { s.addEventListener('change', sync); });
+  })();
+</script>
+
+{% schema %}
+{ "name": "Product page" }
+{% endschema %}

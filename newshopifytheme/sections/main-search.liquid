@@ -1,0 +1,45 @@
+{%- paginate search.results by 24 -%}
+<style>
+  .search-head { padding-block: clamp(24px, 4vw, 44px); }
+  .search-head form { display: flex; gap: 10px; max-width: 560px; margin-top: 18px; }
+  .search-head input { flex: 1; background: var(--ink-1); border: 1px solid var(--hair); border-radius: var(--radius); color: var(--bone); padding: 13px 15px; font-family: var(--f-mono); }
+  .search-title { font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; font-size: clamp(32px, 5vw, 56px); margin: 0; line-height: .9; }
+  .search-count { font-family: var(--f-mono); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 8px; }
+</style>
+<div class="wrap search-head">
+  <h1 class="search-title">{{ 'general.search.search' | t }}</h1>
+  <form action="{{ routes.search_url }}" method="get" role="search">
+    <input type="search" name="q" value="{{ search.terms | escape }}" placeholder="{{ 'general.search.placeholder' | t }}" autocomplete="off">
+    <button type="submit" class="btn btn--primary">{{ 'general.search.submit' | t }}</button>
+  </form>
+  {%- if search.performed -%}
+    <p class="search-count">{{ 'general.search.results_with_count' | t: count: search.results_count, terms: search.terms }}</p>
+  {%- endif -%}
+</div>
+
+<div class="wrap section" style="padding-top:0;">
+  {%- if search.performed and search.results.size > 0 -%}
+    <div class="cover-grid">
+      {%- for item in search.results -%}
+        {%- if item.object_type == 'product' -%}
+          {% render 'product-card', product: item %}
+        {%- endif -%}
+      {%- endfor -%}
+    </div>
+    {%- if paginate.pages > 1 -%}
+      <nav class="pagination" aria-label="Pagination">
+        {%- for part in paginate.parts -%}
+          {%- if part.is_link -%}<a href="{{ part.url }}">{{ part.title }}</a>
+          {%- else -%}<span class="{% if part.title == paginate.current_page %}current{% endif %}">{{ part.title }}</span>{%- endif -%}
+        {%- endfor -%}
+      </nav>
+    {%- endif -%}
+  {%- elsif search.performed -%}
+    <p class="empty-state">{{ 'general.search.no_results' | t: terms: search.terms }}</p>
+  {%- endif -%}
+</div>
+{%- endpaginate -%}
+
+{% schema %}
+{ "name": "Search" }
+{% endschema %}

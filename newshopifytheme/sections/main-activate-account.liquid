@@ -1,0 +1,17 @@
+<div class="wrap auth">
+  <h1>Activate account</h1>
+  <p class="sub">Set a password to finish setting up your account.</p>
+  {%- form 'activate_customer_password' -%}
+    {%- if form.errors -%}<div class="form-errors">{{ form.errors | default_errors }}</div>{%- endif -%}
+    <div class="field-group">
+      <div><label for="act-pass">Password</label><input type="password" id="act-pass" name="customer[password]" required></div>
+      <div><label for="act-conf">Confirm password</label><input type="password" id="act-conf" name="customer[password_confirmation]" required></div>
+      <button type="submit" class="btn btn--primary btn--block">Activate</button>
+      <button type="submit" name="decline" class="btn btn--ghost btn--block">Decline invitation</button>
+    </div>
+  {%- endform -%}
+</div>
+
+{% schema %}
+{ "name": "Activate account" }
+{% endschema %}

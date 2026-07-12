@@ -1,0 +1,16 @@
+<style>
+  .notfound { text-align: center; padding-block: clamp(60px, 12vw, 140px); }
+  .notfound .code { font-family: var(--f-display); font-weight: 800; font-stretch: condensed; font-size: clamp(90px, 22vw, 220px); line-height: .8; color: transparent; -webkit-text-stroke: 2px var(--hair); }
+  .notfound h1 { font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; font-size: clamp(28px, 5vw, 46px); margin: 8px 0 12px; }
+  .notfound p { color: var(--muted); max-width: 44ch; margin: 0 auto 26px; }
+</style>
+<div class="wrap notfound">
+  <div class="code">404</div>
+  <h1>{{ 'general.404.title' | t }}</h1>
+  <p>{{ 'general.404.subtext' | t }}</p>
+  <a class="btn btn--primary" href="{{ routes.all_products_collection_url }}">Browse the shelf</a>
+</div>
+
+{% schema %}
+{ "name": "404" }
+{% endschema %}

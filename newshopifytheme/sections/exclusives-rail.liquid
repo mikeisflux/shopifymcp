@@ -1,0 +1,59 @@
+{%- liquid
+  assign coll = collections[section.settings.collection]
+-%}
+<style>
+  .rail-wrap { position: relative; }
+  .rail-band {
+    background:
+      repeating-linear-gradient(45deg, color-mix(in srgb, var(--gold) 12%, transparent) 0 14px, transparent 14px 28px),
+      var(--ink-1);
+    border-block: 1px solid color-mix(in srgb, var(--gold) 30%, var(--hair));
+  }
+  .rail {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(180px, 1fr);
+    gap: var(--gap); overflow-x: auto; scroll-snap-type: x mandatory;
+    padding-bottom: 6px; scrollbar-width: thin;
+  }
+  .rail > * { scroll-snap-align: start; }
+  .rail::-webkit-scrollbar { height: 6px; }
+  .rail::-webkit-scrollbar-thumb { background: var(--hair); border-radius: 6px; }
+  .exclusives .section-head h2 { color: var(--gold); }
+</style>
+
+<section class="section rail-wrap exclusives">
+  <div class="rail-band">
+    <div class="wrap" style="padding-block: clamp(30px,4vw,48px);">
+      <div class="section-head" style="border-color: color-mix(in srgb, var(--gold) 30%, var(--hair));">
+        <div>
+          <span class="eyebrow eyebrow--gold">{{ section.settings.eyebrow }}</span>
+          <h2>{{ section.settings.title }}</h2>
+        </div>
+        {%- if coll != empty -%}<a class="link-more" href="{{ coll.url }}">Every exclusive →</a>{%- endif -%}
+      </div>
+      <div class="rail">
+        {%- if coll != empty and coll.products.size > 0 -%}
+          {%- for product in coll.products limit: section.settings.count -%}
+            {% render 'product-card', product: product %}
+          {%- endfor -%}
+        {%- else -%}
+          {%- for i in (1..6) -%}
+            <div class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--ltd">LTD 50</span></div>{{ 'product-2' | placeholder_svg_tag: 'placeholder' }}</div><div class="card__body"><h3 class="card__title">Exclusive edition</h3><div class="card__meta"><span class="card__price">$50.00</span></div></div></div>
+          {%- endfor -%}
+        {%- endif -%}
+      </div>
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Exclusives rail",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "Numbered & limited" },
+    { "type": "text", "id": "title", "label": "Heading", "default": "Exclusives & LTD editions" },
+    { "type": "collection", "id": "collection", "label": "Collection" },
+    { "type": "range", "id": "count", "label": "Max items", "min": 4, "max": 16, "step": 1, "default": 10 }
+  ],
+  "presets": [{ "name": "Exclusives rail" }]
+}
+{% endschema %}

@@ -1,0 +1,70 @@
+{
+  "general": {
+    "meta": { "tags": "Tagged \"{{ tags }}\"", "page": "Page {{ page }}" },
+    "404": { "title": "Off the rack", "subtext": "That page pulled a vanishing act. The page you were after doesn't exist — or sold through." },
+    "pagination": { "previous": "Previous", "next": "Next", "page": "Page {{ number }}" },
+    "search": {
+      "search": "Search",
+      "placeholder": "Search titles, issues, artists…",
+      "results_with_count": "{{ count }} result for \"{{ terms }}\"",
+      "results_with_count_plural": "{{ count }} results for \"{{ terms }}\"",
+      "no_results": "No hits for \"{{ terms }}\". Try a series name or an issue code.",
+      "submit": "Search"
+    },
+    "newsletter": { "label": "Email", "placeholder": "you@email.com", "submit": "Subscribe", "success": "You're on the list." }
+  },
+  "accessibility": {
+    "skip_to_content": "Skip to content",
+    "menu": "Menu",
+    "close": "Close",
+    "cart": "Cart",
+    "search": "Search",
+    "account": "Account",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "products": {
+    "product": {
+      "add_to_cart": "Add to cart",
+      "sold_out": "Sold out",
+      "unavailable": "Unavailable",
+      "on_sale": "Sale",
+      "from_price": "From {{ price }}",
+      "quantity": "Quantity",
+      "pickup": "Available",
+      "vendor": "Publisher",
+      "variants": "{{ count }} covers",
+      "description": "Details",
+      "share": "Share"
+    },
+    "facets": {
+      "all": "All",
+      "sort_by": "Sort",
+      "filter": "Filter",
+      "clear": "Clear",
+      "results": "{{ count }} items"
+    }
+  },
+  "cart": {
+    "title": "Your cart",
+    "empty": "Your cart is empty.",
+    "continue": "Keep shopping",
+    "subtotal": "Subtotal",
+    "checkout": "Checkout",
+    "note": "Order note",
+    "remove": "Remove",
+    "taxes_shipping": "Taxes and shipping calculated at checkout.",
+    "quantity": "Qty",
+    "total": "Total"
+  },
+  "customer": {
+    "account": { "title": "Account", "orders": "Orders", "details": "Details", "addresses": "Addresses", "logout": "Log out", "no_orders": "You haven't placed any orders yet." },
+    "login": { "title": "Log in", "email": "Email", "password": "Password", "submit": "Log in", "forgot": "Forgot password?", "create": "Create account", "guest": "Continue as guest" },
+    "register": { "title": "Create account", "first_name": "First name", "last_name": "Last name", "email": "Email", "password": "Password", "submit": "Create", "has_account": "Already have an account?" },
+    "recover": { "title": "Reset password", "subtext": "We'll email you a reset link.", "submit": "Send", "cancel": "Cancel" },
+    "orders": { "order": "Order", "date": "Date", "status": "Status", "total": "Total" },
+    "order": { "title": "Order {{ name }}", "date": "Placed on {{ date }}", "product": "Item", "sku": "SKU", "price": "Price", "quantity": "Qty", "total": "Total" },
+    "addresses": { "title": "Addresses", "add": "Add address", "edit": "Edit", "delete": "Delete", "default": "Default", "save": "Save", "cancel": "Cancel" }
+  },
+  "blogs": { "article": { "read_more": "Read more", "by": "By {{ author }}", "comments": "{{ count }} comments" } }
+}

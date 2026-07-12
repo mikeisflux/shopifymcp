@@ -1,0 +1,51 @@
+{%- liquid
+  assign coll = collections[section.settings.collection]
+  assign limit = section.settings.count
+-%}
+<section class="section" id="{{ section.id }}">
+  <div class="wrap">
+    <div class="section-head">
+      <div>
+        {%- if section.settings.eyebrow != blank -%}<span class="eyebrow">{{ section.settings.eyebrow }}</span>{%- endif -%}
+        <h2>{{ section.settings.title }}</h2>
+      </div>
+      {%- if coll != empty -%}<a class="link-more" href="{{ coll.url }}">See all {{ coll.all_products_count }} →</a>{%- endif -%}
+    </div>
+
+    {%- if section.settings.show_filters -%}
+      <div class="chips" data-filter-group data-filter-target="Grid-{{ section.id }}">
+        <button class="chip" data-filter="all" aria-pressed="true">All</button>
+        <button class="chip" data-filter="books" aria-pressed="false">Books</button>
+        <button class="chip" data-filter="prints" aria-pressed="false">Prints</button>
+        <button class="chip" data-filter="digital" aria-pressed="false">Digital</button>
+        <button class="chip" data-filter="merch" aria-pressed="false">Merch</button>
+      </div>
+    {%- endif -%}
+
+    <div class="cover-grid" id="Grid-{{ section.id }}">
+      {%- if coll != empty and coll.products.size > 0 -%}
+        {%- for product in coll.products limit: limit -%}
+          {% render 'product-card', product: product %}
+        {%- endfor -%}
+      {%- else -%}
+        {%- for i in (1..limit) -%}
+          <div class="card"><div class="card__media">{{ 'product-1' | placeholder_svg_tag: 'placeholder' }}</div><div class="card__body"><h3 class="card__title">Example cover</h3><div class="card__meta"><span class="card__price">$10.00</span></div></div></div>
+        {%- endfor -%}
+      {%- endif -%}
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Cover grid",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "Hot off the press" },
+    { "type": "text", "id": "title", "label": "Heading", "default": "Latest covers" },
+    { "type": "collection", "id": "collection", "label": "Collection" },
+    { "type": "range", "id": "count", "label": "Products to show", "min": 4, "max": 24, "step": 2, "default": 12 },
+    { "type": "checkbox", "id": "show_filters", "label": "Show format filter chips", "default": true }
+  ],
+  "presets": [{ "name": "Cover grid" }]
+}
+{% endschema %}

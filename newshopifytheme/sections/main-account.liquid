@@ -1,0 +1,38 @@
+<div class="wrap">
+  <div class="acct-head">
+    <div>
+      <span class="eyebrow">{{ customer.name | default: customer.email }}</span>
+      <h1 style="font-family:var(--f-display);font-weight:800;font-stretch:condensed;text-transform:uppercase;font-size:clamp(30px,5vw,50px);margin:6px 0 0;line-height:.9;">{{ 'customer.account.title' | t }}</h1>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <a class="btn btn--ghost" href="{{ routes.account_addresses_url }}">{{ 'customer.account.addresses' | t }}</a>
+      <a class="btn btn--ghost" href="{{ routes.account_logout_url }}">{{ 'customer.account.logout' | t }}</a>
+    </div>
+  </div>
+
+  <h2 style="font-family:var(--f-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:0 0 14px;">{{ 'customer.account.orders' | t }}</h2>
+  {%- if customer.orders.size > 0 -%}
+    <div class="acct-wrap">
+      <table class="acct-table">
+        <thead><tr><th>{{ 'customer.orders.order' | t }}</th><th>{{ 'customer.orders.date' | t }}</th><th>{{ 'customer.orders.status' | t }}</th><th style="text-align:right;">{{ 'customer.orders.total' | t }}</th></tr></thead>
+        <tbody>
+          {%- for order in customer.orders -%}
+            <tr>
+              <td><a href="{{ order.customer_url }}" style="color:var(--red);font-family:var(--f-mono);">{{ order.name }}</a></td>
+              <td>{{ order.created_at | date: '%b %d, %Y' }}</td>
+              <td>{{ order.financial_status_label }}</td>
+              <td style="text-align:right;font-family:var(--f-mono);">{{ order.total_price | money }}</td>
+            </tr>
+          {%- endfor -%}
+        </tbody>
+      </table>
+    </div>
+  {%- else -%}
+    <p style="color:var(--muted);padding:20px 0;">{{ 'customer.account.no_orders' | t }}</p>
+  {%- endif -%}
+  <div style="height:60px;"></div>
+</div>
+
+{% schema %}
+{ "name": "Account" }
+{% endschema %}

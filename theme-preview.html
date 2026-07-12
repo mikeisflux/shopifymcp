@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Divinity — Newsstand theme preview</title>
+<style>
+  :root{
+    --ink:#14110f;--ink-1:#1b1714;--ink-2:#241f1b;--hair:#322b25;--bone:#ece6d9;
+    --muted:#a49a8b;--faint:#6f665b;--red:#ff2e43;--red-deep:#cf1730;--gold:#e7b23c;--good:#4bbf7b;
+    --page:1320px;--gap:22px;--radius:4px;
+    --f-display:"Helvetica Neue","Arial Narrow",Arial,sans-serif;
+    --f-body:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --f-mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--bone);font-family:var(--f-body);font-size:15px;line-height:1.55;
+    -webkit-font-smoothing:antialiased;background-image:radial-gradient(rgba(255,255,255,.018) 1px,transparent 1px);background-size:4px 4px}
+  img{max-width:100%;display:block}
+  a{color:inherit;text-decoration:none}
+  .wrap{width:min(100% - 2rem,var(--page));margin-inline:auto}
+  .section{padding-block:clamp(38px,6vw,72px)}
+  .display,.hero-title,.section-head h2{font-family:var(--f-display);font-weight:800;font-stretch:condensed;text-transform:uppercase;letter-spacing:-.01em;line-height:.92;margin:0}
+  .eyebrow{font-family:var(--f-mono);text-transform:uppercase;letter-spacing:.22em;font-size:11px;color:var(--red);margin:0 0 .8rem;display:inline-flex;align-items:center;gap:.55em}
+  .eyebrow::before{content:"";width:22px;height:2px;background:var(--red)}
+  .eyebrow--gold{color:var(--gold)} .eyebrow--gold::before{background:var(--gold)}
+  .section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;margin-bottom:clamp(18px,3vw,30px);border-bottom:1px solid var(--hair);padding-bottom:14px}
+  .section-head h2{font-size:clamp(24px,3.6vw,40px);line-height:.95}
+  .link-more{font-family:var(--f-mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .link-more:hover{color:var(--red)}
+  .btn{display:inline-flex;align-items:center;gap:.5em;font-family:var(--f-mono);font-size:13px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:13px 22px;border-radius:var(--radius);border:1px solid transparent;cursor:pointer}
+  .btn--primary{background:var(--red);color:#fff} .btn--primary:hover{background:var(--red-deep)}
+  .btn--ghost{border-color:var(--hair);color:var(--bone)} .btn--ghost:hover{border-color:var(--bone)}
+  .badge{font-family:var(--f-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;padding:3px 7px;border-radius:3px;line-height:1}
+  .badge--new{background:var(--red);color:#fff} .badge--ltd{background:var(--gold);color:#1a1206}
+  .badge--sale{background:transparent;color:var(--red);border:1px solid var(--red)}
+  .badge--digital{background:transparent;color:var(--good);border:1px solid rgba(75,191,123,.5)}
+
+  /* announcement + header */
+  .announce{background:var(--red);color:#fff;font-family:var(--f-mono);font-size:12px;letter-spacing:.06em;text-align:center;padding:7px 12px}
+  .site-header{position:sticky;top:0;z-index:100;background:rgba(20,17,15,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--hair)}
+  .header-bar{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:20px;height:64px}
+  .logo{font-family:var(--f-display);font-weight:800;font-stretch:condensed;font-size:26px;letter-spacing:.02em;text-transform:uppercase}
+  .logo b{color:var(--red)}
+  .nav{display:flex;justify-content:center;gap:4px}
+  .nav a{font-family:var(--f-mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:8px 12px}
+  .nav a:hover{color:var(--bone)}
+  .header-actions{display:flex;gap:6px;justify-self:end}
+  .icon-btn{color:var(--bone);padding:9px;display:inline-flex}
+  .icon-btn svg{width:20px;height:20px}
+  @media(max-width:900px){.nav{display:none}}
+
+  /* hero */
+  .hero{border-bottom:1px solid var(--hair);overflow:hidden}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;align-items:center;gap:clamp(24px,5vw,56px);padding-block:clamp(34px,5vw,60px)}
+  .hero-title{font-size:clamp(46px,8vw,104px);line-height:.86;letter-spacing:-.015em}
+  .lede{color:var(--muted);font-size:17px;max-width:44ch;margin:18px 0 26px}
+  .hero-cta{display:flex;flex-wrap:wrap;gap:12px}
+  .hero-facts{display:flex;gap:26px;margin-top:30px;padding-top:22px;border-top:1px solid var(--hair)}
+  .hero-facts .n{font-family:var(--f-mono);font-size:22px;font-weight:700;display:block}
+  .hero-facts .l{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .hero-stack{position:relative;height:clamp(320px,40vw,460px)}
+  .hero-stack .cov{position:absolute;top:50%;left:50%;width:clamp(180px,22vw,250px);aspect-ratio:2/3;border-radius:var(--radius);overflow:hidden;border:1px solid var(--hair);box-shadow:0 30px 60px -30px #000;background:var(--ink-2)}
+  .hero-stack .cov img{width:100%;height:100%;object-fit:cover}
+  .hero-stack .cov:nth-child(1){transform:translate(-50%,-50%) rotate(-9deg) translateX(-58%);z-index:1;filter:brightness(.8)}
+  .hero-stack .cov:nth-child(2){transform:translate(-50%,-50%) rotate(5deg) translateX(52%);z-index:2;filter:brightness(.9)}
+  .hero-stack .cov:nth-child(3){transform:translate(-50%,-50%) rotate(-2deg);z-index:3}
+  .hero-stack .tag{position:absolute;z-index:5;top:8%;right:4%;background:var(--gold);color:#1a1206;font-family:var(--f-mono);font-weight:700;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:6px 10px;border-radius:3px;transform:rotate(6deg)}
+  @media(max-width:860px){.hero-grid{grid-template-columns:1fr}.hero-stack{order:-1}}
+
+  /* series grid */
+  .series-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+  .series-tile{position:relative;display:block;border-radius:var(--radius);overflow:hidden;aspect-ratio:3/4;background:var(--ink-2);border:1px solid var(--hair);transition:border-color .16s,transform .16s}
+  .series-tile:hover{border-color:var(--red);transform:translateY(-3px)}
+  .series-tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.82}
+  .series-tile:hover img{opacity:1}
+  .series-tile::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(10,8,7,.92) 12%,rgba(10,8,7,.15) 55%,transparent)}
+  .series-tile .cap{position:absolute;inset:auto 0 0 0;z-index:2;padding:12px}
+  .series-tile h3{font-family:var(--f-display);font-weight:800;font-stretch:condensed;text-transform:uppercase;font-size:17px;line-height:.95;margin:0;color:#fff}
+  .series-tile span{font-family:var(--f-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  @media(max-width:1080px){.series-grid{grid-template-columns:repeat(4,1fr)}}
+  @media(max-width:680px){.series-grid{grid-template-columns:repeat(3,1fr)}}
+
+  /* cover grid + card */
+  .cover-grid{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(175px,1fr))}
+  .card{position:relative;display:flex;flex-direction:column;background:var(--ink-1);border:1px solid var(--hair);border-radius:var(--radius);overflow:hidden;transition:border-color .16s,transform .16s}
+  .card:hover{border-color:#7a2a2f;transform:translateY(-3px)}
+  .card__media{position:relative;aspect-ratio:2/3;background:var(--ink-2);overflow:hidden}
+  .card__media img{width:100%;height:100%;object-fit:cover;transition:transform .4s}
+  .card:hover .card__media img{transform:scale(1.05)}
+  .card__badges{position:absolute;top:8px;left:8px;display:flex;flex-wrap:wrap;gap:5px;z-index:2}
+  .card__code{position:absolute;bottom:8px;right:8px;z-index:2;font-family:var(--f-mono);font-size:10px;letter-spacing:.08em;background:rgba(10,8,7,.72);padding:3px 6px;border-radius:3px}
+  .card__body{padding:11px 12px 13px;display:flex;flex-direction:column;gap:4px;flex:1}
+  .card__title{font-size:13.5px;font-weight:600;line-height:1.25;margin:0}
+  .card__meta{display:flex;align-items:baseline;justify-content:space-between;margin-top:auto;padding-top:6px}
+  .card__price{font-family:var(--f-mono);font-size:14px;font-weight:600}
+  .card__price .was{color:var(--faint);text-decoration:line-through;font-weight:400;font-size:12px;margin-right:.4em}
+  .card__variants{font-family:var(--f-mono);font-size:10.5px;color:var(--faint);letter-spacing:.04em;text-transform:uppercase}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
+  .chip{font-family:var(--f-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:7px 13px;border-radius:999px;border:1px solid var(--hair);background:transparent;color:var(--muted);cursor:pointer}
+  .chip.is-active{background:var(--red);border-color:var(--red);color:#fff}
+
+  /* exclusives rail */
+  .rail-band{background:repeating-linear-gradient(45deg,rgba(231,178,60,.12) 0 14px,transparent 14px 28px),var(--ink-1);border-block:1px solid #4a3d24}
+  .rail{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(180px,1fr);gap:var(--gap);overflow-x:auto;padding-bottom:6px}
+  .exclusives .section-head h2{color:var(--gold)}
+
+  /* artists */
+  .artists-row{display:flex;flex-wrap:wrap;gap:10px}
+  .artist-chip{display:inline-flex;align-items:center;gap:9px;padding:8px 14px 8px 8px;border:1px solid var(--hair);border-radius:999px;background:var(--ink-1)}
+  .artist-chip:hover{border-color:var(--red)}
+  .artist-chip .dot{width:26px;height:26px;border-radius:999px;display:grid;place-items:center;background:var(--red);color:#fff;font-family:var(--f-display);font-weight:800;font-size:12px}
+  .artist-chip span{font-size:13.5px;font-weight:600} .artist-chip small{font-family:var(--f-mono);font-size:10px;color:var(--faint)}
+
+  /* newsletter + footer */
+  .signup{background:radial-gradient(120% 140% at 100% 0%,rgba(255,46,67,.22),transparent 55%),var(--ink-1);border:1px solid var(--hair);border-radius:var(--radius);padding:clamp(28px,5vw,56px);display:grid;grid-template-columns:1.1fr 1fr;gap:30px;align-items:center}
+  .signup h2{font-family:var(--f-display);font-weight:800;font-stretch:condensed;text-transform:uppercase;font-size:clamp(28px,4vw,46px);line-height:.95;margin:0}
+  .signup p{color:var(--muted);margin:12px 0 0;max-width:42ch}
+  .signup form{display:flex;gap:10px}
+  .signup input{flex:1;background:var(--ink);border:1px solid var(--hair);border-radius:var(--radius);color:var(--bone);padding:13px 15px;font-family:var(--f-mono);font-size:14px}
+  @media(max-width:760px){.signup{grid-template-columns:1fr}}
+  .site-footer{background:var(--ink-1);border-top:1px solid var(--hair);margin-top:40px}
+  .footer-top{display:grid;grid-template-columns:1.6fr repeat(3,1fr);gap:40px 30px;padding-block:clamp(40px,6vw,64px)}
+  .footer-brand .logo{font-size:34px}
+  .footer-brand p{color:var(--muted);max-width:34ch;margin:14px 0 18px;font-size:14px}
+  .footer-col h3{font-family:var(--f-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);margin:0 0 14px}
+  .footer-col ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+  .footer-col a{color:var(--muted);font-size:14px} .footer-col a:hover{color:var(--bone)}
+  .footer-bar{border-top:1px solid var(--hair);padding-block:18px;display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-between;font-family:var(--f-mono);font-size:11.5px;color:var(--faint)}
+  @media(max-width:800px){.footer-top{grid-template-columns:1fr 1fr}.footer-brand{grid-column:1/-1}}
+  .preview-note{background:#0d0b0a;border-bottom:1px solid var(--hair);text-align:center;font-family:var(--f-mono);font-size:11px;color:var(--faint);padding:6px;letter-spacing:.08em}
+</style>
+</head>
+<body>
+<div class="preview-note">STATIC PREVIEW OF THE “DIVINITY — NEWSSTAND” SHOPIFY THEME · REAL COVERS FROM YOUR STORE</div>
+<div class="announce">Free US shipping over $75 · New drop: Dead Sexy #2 is live</div>
+
+<header class="site-header"><div class="wrap header-bar">
+  <a class="logo" href="#">DIVINITY<b>.</b></a>
+  <nav class="nav">
+    <a href="#">New Drops</a><a href="#series">Series</a><a href="#">Books</a><a href="#">Prints</a><a href="#">Digital</a><a href="#">Exclusives</a>
+  </nav>
+  <div class="header-actions">
+    <span class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg></span>
+    <span class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span>
+    <span class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg></span>
+  </div>
+</div></header>
+
+<!-- HERO -->
+<section class="hero"><div class="wrap hero-grid">
+  <div>
+    <span class="eyebrow">New drop · Dead Sexy #2 out now</span>
+    <h1 class="hero-title">Variant covers, not vanilla.</h1>
+    <p class="lede">Independent comics with a shelf full of covers, prints, digitals and collectibles. Pick your cover. Chase the exclusives.</p>
+    <div class="hero-cta"><a class="btn btn--primary" href="#">Shop the drop</a><a class="btn btn--ghost" href="#series">Browse series</a></div>
+    <div class="hero-facts">
+      <div><span class="n">60+</span><span class="l">Collections</span></div>
+      <div><span class="n">400+</span><span class="l">Variant covers</span></div>
+      <div><span class="n">20+</span><span class="l">Artists</span></div>
+    </div>
+  </div>
+  <div class="hero-stack">
+    <span class="tag">Out now</span>
+    <div class="cov"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/DS2-8.jpg?v=1756948177" alt="Dead Sexy 2 cover"></div>
+    <div class="cov"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/DS2-17.jpg?v=1756947696" alt="Dead Sexy 2 cover"></div>
+    <div class="cov"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/DS2-1.jpg?v=1756948465" alt="Dead Sexy 2 cover"></div>
+  </div>
+</div></section>
+
+<!-- SERIES -->
+<section class="section" id="series"><div class="wrap">
+  <div class="section-head"><div><span class="eyebrow">One shelf per title</span><h2>Shop by series</h2></div><a class="link-more" href="#">All collections →</a></div>
+  <div class="series-grid">
+    <a class="series-tile"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS1-CVR-A-Original.png?v=1687456611"><div class="cap"><h3>Boobs</h3><span>9 items</span></div></a>
+    <a class="series-tile"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/DS2-1.jpg?v=1756948465"><div class="cap"><h3>Dead Sexy</h3><span>18 items</span></div></a>
+    <a class="series-tile"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_D_Lady_Darth_web.png?v=1739922568"><div class="cap"><h3>Star Whores</h3><span>12 items</span></div></a>
+    <a class="series-tile"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/PrintCVRB.jpg?v=1752099925"><div class="cap"><h3>Surrender the Booty</h3><span>28 items</span></div></a>
+    <a class="series-tile"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/M1-APS.png?v=1778622523"><div class="cap"><h3>The Mandawhorian</h3><span>21 items</span></div></a>
+    <a class="series-tile"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/GB2-MAPSC.png?v=1776231245"><div class="cap"><h3>G-Busters</h3><span>21 items</span></div></a>
+    <a class="series-tile"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVRFNa.png?v=1748392543"><div class="cap"><h3>X-FEM</h3><span>38 items</span></div></a>
+    <a class="series-tile"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/11x17_Print_CVR_G.png?v=1763332598"><div class="cap"><h3>Lady Darth</h3><span>14 items</span></div></a>
+    <a class="series-tile"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/ST1-08V.png?v=1780103093"><div class="cap"><h3>Sweeney Todd</h3><span>13 items</span></div></a>
+    <a class="series-tile"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR-F-Sutton.jpg?v=1711657420"><div class="cap"><h3>Trip Story</h3><span>Explore</span></div></a>
+  </div>
+</div></section>
+
+<!-- LATEST -->
+<section class="section" style="padding-top:0"><div class="wrap">
+  <div class="section-head"><div><span class="eyebrow">Hot off the press</span><h2>Latest covers</h2></div><a class="link-more" href="#">See all →</a></div>
+  <div class="chips"><span class="chip is-active">All</span><span class="chip">Books</span><span class="chip">Prints</span><span class="chip">Digital</span><span class="chip">Merch</span></div>
+  <div class="cover-grid">
+    <a class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--new">New</span></div><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/Boobs_2_CVR_B_Glam_Shot.png?v=1744760247"><span class="card__code">B2-03</span></div><div class="card__body"><h3 class="card__title">Boobs #2 — Cabaret Glam Shot</h3><div class="card__meta"><span class="card__price">$10.00</span><span class="card__variants">4 covers</span></div></div></a>
+    <a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-E-ASM.png?v=1695444954"><span class="card__code">B2-13</span></div><div class="card__body"><h3 class="card__title">Boobs #2 — ASM Homage (Wheeler)</h3><div class="card__meta"><span class="card__price">$50.00</span><span class="card__variants">2 covers</span></div></div></a>
+    <a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-D-Alex-Jones.png?v=1695444577"><span class="card__code">B2-11</span></div><div class="card__body"><h3 class="card__title">Boobs #2 — Alex Jones (Aguilera)</h3><div class="card__meta"><span class="card__price">$10.00</span><span class="card__variants">4 covers</span></div></div></a>
+    <a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_C_Laya_web.png?v=1739923072"><span class="card__code">SW1-05</span></div><div class="card__body"><h3 class="card__title">Star Whores #1 — Laya</h3><div class="card__meta"><span class="card__price">$20.00</span></div></div></a>
+    <a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-F-Show-Me.png?v=1695465398"><span class="card__code">B2-14</span></div><div class="card__body"><h3 class="card__title">Boobs #2 — Show Me (Williams)</h3><div class="card__meta"><span class="card__price">$10.00</span><span class="card__variants">4 covers</span></div></div></a>
+    <a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_B_Booba_Fett_web.png?v=1739923147"><span class="card__code">SW1-03</span></div><div class="card__body"><h3 class="card__title">Star Whores #1 — Booba Fett</h3><div class="card__meta"><span class="card__price">$20.00</span></div></div></a>
+    <a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-A-Faught.png?v=1695442955"><span class="card__code">B2-01</span></div><div class="card__body"><h3 class="card__title">Boobs #2 — Cover A (Faught)</h3><div class="card__meta"><span class="card__price">$10.00</span></div></div></a>
+    <a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_E_Luka_web.png?v=1739922466"><span class="card__code">SW1-09</span></div><div class="card__body"><h3 class="card__title">Star Whores #1 — Luka</h3><div class="card__meta"><span class="card__price">$20.00</span></div></div></a>
+    <a class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--ltd">LTD</span></div><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/Messenger-creation_4213D747-F775-43F0-B82D-3E2E405B7CFE.jpg?v=1730328337"><span class="card__code">B1-01F</span></div><div class="card__body"><h3 class="card__title">Boobs #1 — Foil Edition</h3><div class="card__meta"><span class="card__price">$45.00</span></div></div></a>
+    <a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-C-Krome.png?v=1695444104"><span class="card__code">B2-05</span></div><div class="card__body"><h3 class="card__title">Boobs #2 — Cover C (Krome)</h3><div class="card__meta"><span class="card__price">$20.00</span></div></div></a>
+    <a class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--sale">Sale</span></div><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS1-CVR-A-Original.png?v=1687456611"><span class="card__code">B1-01</span></div><div class="card__body"><h3 class="card__title">Boobs #1 — Cover A Original</h3><div class="card__meta"><span class="card__price"><span class="was">$14.00</span>$10.00</span></div></div></a>
+    <a class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--digital">Digital</span></div><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/boobs-1-digital-pdf-website.png?v=1702927725"><span class="card__code">B2-DIG</span></div><div class="card__body"><h3 class="card__title">Boobs #2 — Digital</h3><div class="card__meta"><span class="card__price">$5.00</span></div></div></a>
+  </div>
+</div></section>
+
+<!-- EXCLUSIVES -->
+<section class="section exclusives" style="padding:0"><div class="rail-band"><div class="wrap" style="padding-block:clamp(30px,4vw,48px)">
+  <div class="section-head" style="border-color:#4a3d24"><div><span class="eyebrow eyebrow--gold">Numbered &amp; limited</span><h2>Exclusives &amp; LTD editions</h2></div><a class="link-more" href="#">Every exclusive →</a></div>
+  <div class="rail">
+    <a class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--ltd">LTD 10</span></div><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-E-ASM.png?v=1695444954"></div><div class="card__body"><h3 class="card__title">B2-22 Black Metal Spotlight</h3><div class="card__meta"><span class="card__price">$150.00</span></div></div></a>
+    <a class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--ltd">LTD 25</span></div><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-C-Krome.png?v=1695444104"></div><div class="card__body"><h3 class="card__title">B2-17 RB White Bracked Ice</h3><div class="card__meta"><span class="card__price">$100.00</span></div></div></a>
+    <a class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--ltd">LTD 50</span></div><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-A-Faught.png?v=1695442955"></div><div class="card__body"><h3 class="card__title">B2-18 Super Tits Exclusive</h3><div class="card__meta"><span class="card__price">$40.00</span></div></div></a>
+    <a class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--ltd">Foil</span></div><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/Messenger-creation_4213D747-F775-43F0-B82D-3E2E405B7CFE.jpg?v=1730328337"></div><div class="card__body"><h3 class="card__title">B1-01F Foil Edition</h3><div class="card__meta"><span class="card__price">$45.00</span></div></div></a>
+    <a class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--ltd">Metal</span></div><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/M1-MTCS.png?v=1778622702"></div><div class="card__body"><h3 class="card__title">Mandawhorian Metal Card Set</h3><div class="card__meta"><span class="card__price">$45.00</span></div></div></a>
+    <a class="card"><div class="card__media"><div class="card__badges"><span class="badge badge--ltd">LTD</span></div><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/GB2-MAPSC.png?v=1776231245"></div><div class="card__body"><h3 class="card__title">G-Busters #2 Magazine Print Set</h3><div class="card__meta"><span class="card__price">$60.00</span></div></div></a>
+  </div>
+</div></div></section>
+
+<!-- ARTISTS -->
+<section class="section"><div class="wrap">
+  <div class="section-head"><div><span class="eyebrow">The pencils behind the covers</span><h2>Featured artists</h2></div></div>
+  <div class="artists-row">
+    <a class="artist-chip"><span class="dot">M</span><span>Mindy Wheeler</span><small>42</small></a>
+    <a class="artist-chip"><span class="dot">S</span><span>Shakamike</span><small>23</small></a>
+    <a class="artist-chip"><span class="dot">D</span><span>Dustin Tyree</span><small>10</small></a>
+    <a class="artist-chip"><span class="dot">R</span><span>RB White</span><small>3</small></a>
+    <a class="artist-chip"><span class="dot">J</span><span>Julian Aguilera</span><small>2</small></a>
+    <a class="artist-chip"><span class="dot">A</span><span>Alfret Le</span><small>6</small></a>
+    <a class="artist-chip"><span class="dot">E</span><span>Eduardo Garcia</span><small>4</small></a>
+    <a class="artist-chip"><span class="dot">T</span><span>Thomas Tenney</span><small>3</small></a>
+  </div>
+</div></section>
+
+<!-- NEWSLETTER -->
+<section class="section"><div class="wrap"><div class="signup">
+  <div><span class="eyebrow">Pull list</span><h2>Never miss a drop.</h2><p>New issues, variant reveals, and LTD exclusives sell fast. Get the heads-up before they hit the shelf.</p></div>
+  <form onsubmit="return false"><input type="email" placeholder="you@email.com"><button class="btn btn--primary">Subscribe</button></form>
+</div></div></section>
+
+<!-- FOOTER -->
+<footer class="site-footer">
+  <div class="wrap footer-top">
+    <div class="footer-brand"><div class="logo">DIVINITY<b>.</b></div><p>Independent comics with more variant covers than shelf space. Books, prints, digitals and collectibles — straight from the studio.</p></div>
+    <div class="footer-col"><h3>Shop</h3><ul><li><a href="#">New drops</a></li><li><a href="#">All books</a></li><li><a href="#">Prints</a></li><li><a href="#">Digital</a></li><li><a href="#">Exclusives</a></li></ul></div>
+    <div class="footer-col"><h3>Series</h3><ul><li><a href="#">Boobs</a></li><li><a href="#">Dead Sexy</a></li><li><a href="#">Star Whores</a></li><li><a href="#">The Mandawhorian</a></li><li><a href="#">G-Busters</a></li></ul></div>
+    <div class="footer-col"><h3>Help</h3><ul><li><a href="#">Shipping</a></li><li><a href="#">Returns</a></li><li><a href="#">Track order</a></li><li><a href="#">Contact</a></li></ul></div>
+  </div>
+  <div class="wrap footer-bar"><span>© 2026 Divinity Comics. All covers © their respective artists.</span><span>Ships worldwide · USD</span></div>
+</footer>
+</body>
+</html>

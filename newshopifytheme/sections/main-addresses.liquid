@@ -1,0 +1,52 @@
+{%- paginate customer.addresses by 6 -%}
+<div class="wrap">
+  <div class="acct-head">
+    <h1 style="font-family:var(--f-display);font-weight:800;font-stretch:condensed;text-transform:uppercase;font-size:clamp(28px,5vw,46px);margin:0;line-height:.9;">{{ 'customer.addresses.title' | t }}</h1>
+    <div style="display:flex;gap:10px;">
+      <button type="button" class="btn btn--primary" onclick="document.getElementById('AddAddress').hidden=false;this.hidden=true;">{{ 'customer.addresses.add' | t }}</button>
+      <a class="btn btn--ghost" href="{{ routes.account_url }}">← {{ 'customer.account.title' | t }}</a>
+    </div>
+  </div>
+
+  <div id="AddAddress" hidden style="max-width:520px;margin-bottom:36px;padding:22px;border:1px solid var(--hair);border-radius:var(--radius);background:var(--ink-1);">
+    {%- form 'customer_address', customer.new_address -%}
+      <div class="field-group">
+        <div><label>First name</label><input type="text" name="address[first_name]"></div>
+        <div><label>Last name</label><input type="text" name="address[last_name]"></div>
+        <div><label>Address</label><input type="text" name="address[address1]"></div>
+        <div><label>Apartment, suite, etc.</label><input type="text" name="address[address2]"></div>
+        <div><label>City</label><input type="text" name="address[city]"></div>
+        <div><label>Country</label><select name="address[country]" id="AddressCountryNew">{{ all_country_option_tags }}</select></div>
+        <div><label>Province</label><select name="address[province]" id="AddressProvinceNew"></select></div>
+        <div><label>ZIP / Postal</label><input type="text" name="address[zip]"></div>
+        <div><label>Phone</label><input type="tel" name="address[phone]"></div>
+        <button type="submit" class="btn btn--primary btn--block">{{ 'customer.addresses.save' | t }}</button>
+      </div>
+    {%- endform -%}
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">
+    {%- for address in customer.addresses -%}
+      <div style="padding:20px;border:1px solid var(--hair);border-radius:var(--radius);background:var(--ink-1);">
+        {%- if address == customer.default_address -%}<span class="badge badge--new" style="margin-bottom:10px;display:inline-block;">{{ 'customer.addresses.default' | t }}</span>{%- endif -%}
+        <div style="color:var(--muted);font-size:14px;line-height:1.7;">{{ address | format_address }}</div>
+        <div style="display:flex;gap:14px;margin-top:14px;font-family:var(--f-mono);font-size:12px;">
+          <a href="{{ routes.account_addresses_url }}/{{ address.id }}" style="color:var(--muted);">{{ 'customer.addresses.edit' | t }}</a>
+          <a href="{{ routes.account_addresses_url }}/{{ address.id }}" data-confirm-delete style="color:var(--red);"
+             onclick="return confirm('Delete this address?');">{{ 'customer.addresses.delete' | t }}</a>
+        </div>
+      </div>
+    {%- endfor -%}
+  </div>
+  <div style="height:60px;"></div>
+</div>
+<script>
+  if (window.Shopify && Shopify.CountryProvinceSelector) {
+    new Shopify.CountryProvinceSelector('AddressCountryNew', 'AddressProvinceNew', { hideElement: 'AddressProvinceContainerNew' });
+  }
+</script>
+{%- endpaginate -%}
+
+{% schema %}
+{ "name": "Addresses" }
+{% endschema %}

@@ -1,0 +1,55 @@
+{%- comment -%}
+  Compact portrait cover card.
+  Usage: {% render 'product-card', product: product %}
+{%- endcomment -%}
+{%- liquid
+  assign on_sale = false
+  if product.compare_at_price > product.price
+    assign on_sale = true
+  endif
+  assign is_ltd = false
+  if product.tags contains 'LTD' or product.tags contains 'ltd' or product.tags contains 'exclusive' or product.title contains 'LTD' or product.title contains 'Exclusive'
+    assign is_ltd = true
+  endif
+  assign is_digital = false
+  if product.tags contains 'digital' or product.title contains 'Digital'
+    assign is_digital = true
+  endif
+  assign is_new = false
+  if product.tags contains 'new' or product.tags contains 'pre-sale' or product.title contains 'pre-sale'
+    assign is_new = true
+  endif
+  assign code = product.selected_or_first_available_variant.sku
+-%}
+<a class="card" href="{{ product.url }}" data-tags="{{ product.type | handle }} {{ product.tags | join: ' ' | downcase }}">
+  <div class="card__media">
+    <div class="card__badges">
+      {%- unless product.available -%}<span class="badge badge--sold">Sold out</span>{%- endunless -%}
+      {%- if is_ltd -%}<span class="badge badge--ltd">LTD</span>{%- endif -%}
+      {%- if on_sale and product.available -%}<span class="badge badge--sale">Sale</span>{%- endif -%}
+      {%- if is_new and product.available and on_sale == false -%}<span class="badge badge--new">New</span>{%- endif -%}
+      {%- if is_digital -%}<span class="badge badge--digital">Digital</span>{%- endif -%}
+    </div>
+    {%- if product.featured_media -%}
+      <img src="{{ product.featured_media | image_url: width: 400 }}"
+           srcset="{{ product.featured_media | image_url: width: 300 }} 300w, {{ product.featured_media | image_url: width: 500 }} 500w"
+           sizes="(min-width:700px) 200px, 45vw"
+           alt="{{ product.featured_media.alt | escape | default: product.title }}" loading="lazy" width="400" height="600">
+    {%- else -%}
+      {{ product | placeholder_svg_tag: 'placeholder' }}
+    {%- endif -%}
+    {%- if code != blank -%}<span class="card__code">{{ code }}</span>{%- endif -%}
+  </div>
+  <div class="card__body">
+    <h3 class="card__title">{{ product.title }}</h3>
+    <div class="card__meta">
+      <span class="card__price">
+        {%- if on_sale -%}<span class="was">{{ product.compare_at_price | money }}</span>{%- endif -%}
+        {%- if product.price_varies -%}{{ 'products.product.from_price' | t: price: product.price_min | money }}{%- else -%}{{ product.price | money }}{%- endif -%}
+      </span>
+      {%- if product.variants.size > 1 -%}
+        <span class="card__variants">{{ product.variants.size }} covers</span>
+      {%- endif -%}
+    </div>
+  </div>
+</a>

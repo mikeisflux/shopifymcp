@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="{{ request.locale.iso_code }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ 'gift_cards.issued.title' | t: value: gift_card.initial_value | money, shop: shop.name }}</title>
+    {{ content_for_header }}
+    <style>
+      :root { --ink:{{ settings.color_bg }}; --ink-1:{{ settings.color_surface }}; --hair:{{ settings.color_hairline }}; --bone:{{ settings.color_text }}; --red:{{ settings.color_accent }}; --gold:{{ settings.color_gold }}; }
+      body { margin:0; background:var(--ink); color:var(--bone); font-family:ui-sans-serif,system-ui,sans-serif; display:grid; place-items:center; min-height:100vh; padding:30px; }
+      .gc { width:min(100%,420px); text-align:center; }
+      .gc .logo { font-family:"Helvetica Neue",Arial,sans-serif; font-weight:800; font-stretch:condensed; text-transform:uppercase; font-size:40px; }
+      .gc .logo b { color:var(--red); }
+      .gc .card { margin-top:22px; border:1px solid var(--hair); border-radius:8px; overflow:hidden; background:var(--ink-1); }
+      .gc .amount { background:linear-gradient(135deg,var(--red),{{ settings.color_accent | color_darken: 20 }}); padding:34px; font-size:52px; font-weight:800; font-family:ui-monospace,monospace; }
+      .gc .code { padding:22px; font-family:ui-monospace,monospace; letter-spacing:.2em; font-size:20px; border-top:1px dashed var(--hair); }
+      .gc .qr { padding:20px; }
+      .gc a.btn { display:inline-block; margin-top:20px; background:var(--red); color:#fff; padding:13px 22px; border-radius:4px; text-decoration:none; font-family:ui-monospace,monospace; text-transform:uppercase; letter-spacing:.08em; font-size:13px; }
+    </style>
+  </head>
+  <body>
+    <div class="gc">
+      <div class="logo">{{ settings.logo_text | default: shop.name }}<b>.</b></div>
+      <div class="card">
+        <div class="amount">{{ gift_card.initial_value | money }}</div>
+        <div class="code">{{ gift_card.code | format_code }}</div>
+        <div class="qr">{{ gift_card.qr_identifier }}</div>
+      </div>
+      <a class="btn" href="{{ shop.url }}">Spend it</a>
+    </div>
+  </body>
+</html>
