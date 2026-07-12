@@ -87,6 +87,118 @@ const UPDATE_SHIPPING_PACKAGE = /* GraphQL */ `
   }
 `;
 
+const CREATE_COLLECTION = /* GraphQL */ `
+  mutation CreateCollection($input: CollectionInput!) {
+    collectionCreate(input: $input) {
+      collection {
+        id title handle sortOrder
+        ruleSet { appliedDisjunctively rules { column relation condition } }
+      }
+      userErrors { field message }
+    }
+  }
+`;
+
+const UPDATE_COLLECTION = /* GraphQL */ `
+  mutation UpdateCollection($input: CollectionInput!) {
+    collectionUpdate(input: $input) {
+      collection {
+        id title handle sortOrder
+        ruleSet { appliedDisjunctively rules { column relation condition } }
+      }
+      userErrors { field message }
+    }
+  }
+`;
+
+const ADD_PRODUCTS_TO_COLLECTION = /* GraphQL */ `
+  mutation AddProductsToCollection($id: ID!, $productIds: [ID!]!) {
+    collectionAddProducts(id: $id, productIds: $productIds) {
+      collection { id title }
+      userErrors { field message }
+    }
+  }
+`;
+
+const REMOVE_PRODUCTS_FROM_COLLECTION = /* GraphQL */ `
+  mutation RemoveProductsFromCollection($id: ID!, $productIds: [ID!]!) {
+    collectionRemoveProducts(id: $id, productIds: $productIds) {
+      job { id done }
+      userErrors { field message }
+    }
+  }
+`;
+
+/** Zod shape for a smart-collection rule set, shared by create/update. */
+const ruleSetShape = z
+  .object({
+    appliedDisjunctively: z
+      .boolean()
+      .default(false)
+      .describe("true = product matches ANY rule (OR); false = must match ALL rules (AND)."),
+    rules: z
+      .array(
+        z.object({
+          column: z
+            .string()
+            .describe(
+              'Rule column, e.g. "TAG", "TITLE", "TYPE", "VENDOR", "VARIANT_PRICE", "IS_PRICE_REDUCED".',
+            ),
+          relation: z
+            .string()
+            .describe(
+              'Relation, e.g. "EQUALS", "NOT_EQUALS", "CONTAINS", "STARTS_WITH", "ENDS_WITH", ' +
+                '"GREATER_THAN", "LESS_THAN", "IS_SET", "IS_NOT_SET".',
+            ),
+          condition: z.string().describe('Value to compare against, e.g. "sale" or "200".'),
+        }),
+      )
+      .min(1)
+      .describe("One or more rules."),
+  })
+  .describe("Smart/automated collection rules. Omit entirely for a manual collection.");
+
+const COLLECTION_SORT_ORDERS = [
+  "MANUAL",
+  "BEST_SELLING",
+  "ALPHA_ASC",
+  "ALPHA_DESC",
+  "PRICE_DESC",
+  "PRICE_ASC",
+  "CREATED",
+  "CREATED_DESC",
+] as const;
+
+function buildCollectionInput(args: {
+  title?: string;
+  descriptionHtml?: string;
+  handle?: string;
+  sortOrder?: string;
+  seoTitle?: string;
+  seoDescription?: string;
+  ruleSet?: { appliedDisjunctively: boolean; rules: Array<{ column: string; relation: string; condition: string }> };
+}): Record<string, unknown> {
+  const input: Record<string, unknown> = {};
+  if (args.title !== undefined) input.title = args.title;
+  if (args.descriptionHtml !== undefined) input.descriptionHtml = args.descriptionHtml;
+  if (args.handle !== undefined) input.handle = args.handle;
+  if (args.sortOrder !== undefined) input.sortOrder = args.sortOrder;
+  if (args.seoTitle !== undefined || args.seoDescription !== undefined) {
+    input.seo = { title: args.seoTitle, description: args.seoDescription };
+  }
+  if (args.ruleSet !== undefined) {
+    input.ruleSet = {
+      appliedDisjunctively: args.ruleSet.appliedDisjunctively,
+      rules: args.ruleSet.rules.map((r) => ({
+        column: r.column,
+        relation: r.relation,
+        condition: r.condition,
+      })),
+    };
+  }
+  return input;
+}
+
 /** Rejects any operation containing a GraphQL `mutation` keyword. */
 function assertReadOnly(query: string): void {
   if (/\bmutation\b/i.test(query)) {
@@ -392,6 +504,155 @@ export function registerWriteMiscTools(server: McpServer, client: ShopifyClient)
       return {
         markdown: `Updated shipping package ${gidToId(args.id)}.`,
         structured: { id: gidToId(args.id), updated: shippingPackage },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_create_collection",
+    title: "Create collection",
+    description:
+      "Create a collection. Omit `ruleSet` for a manual collection (add products with " +
+      "shopify_add_products_to_collection), or provide `ruleSet` for a smart/automated collection " +
+      "whose membership is defined by rules.",
+    inputSchema: {
+      title: z.string().describe("Collection title."),
+      descriptionHtml: z.string().optional().describe("Description (HTML allowed)."),
+      handle: z.string().optional().describe("URL handle/slug. Auto-generated from the title if omitted."),
+      sortOrder: z
+        .enum(COLLECTION_SORT_ORDERS)
+        .optional()
+        .describe("How products are ordered within the collection."),
+      seoTitle: z.string().optional().describe("SEO/browser title tag."),
+      seoDescription: z.string().optional().describe("SEO meta description."),
+      ruleSet: ruleSetShape.optional(),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    handler: async (args, c) => {
+      const res = await c.request<{
+        collectionCreate: {
+          collection: {
+            id: string;
+            title: string;
+            handle: string;
+            sortOrder: string;
+            ruleSet: unknown | null;
+          } | null;
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(CREATE_COLLECTION, { input: buildCollectionInput(args) });
+      assertNoUserErrors(res.data.collectionCreate.userErrors);
+      const col = res.data.collectionCreate.collection!;
+      return {
+        markdown: `Created ${col.ruleSet ? "smart" : "manual"} collection **${col.title}** (id ${gidToId(col.id)}, handle ${col.handle}).`,
+        structured: { collection: stripGids(col) },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_update_collection",
+    title: "Update collection",
+    description:
+      "Update a collection: title, description, handle, sort order, SEO, and — for smart " +
+      "collections — its rule set. Only the fields you provide are changed.",
+    inputSchema: {
+      id: z.string().describe("Collection id (numeric or GID)."),
+      title: z.string().optional(),
+      descriptionHtml: z.string().optional(),
+      handle: z.string().optional(),
+      sortOrder: z.enum(COLLECTION_SORT_ORDERS).optional(),
+      seoTitle: z.string().optional(),
+      seoDescription: z.string().optional(),
+      ruleSet: ruleSetShape.optional().describe("Replaces the smart collection's rules (smart collections only)."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      const input = buildCollectionInput(args);
+      input.id = toGid("Collection", args.id);
+      const res = await c.request<{
+        collectionUpdate: {
+          collection: { id: string; title: string; handle: string } | null;
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(UPDATE_COLLECTION, { input });
+      assertNoUserErrors(res.data.collectionUpdate.userErrors);
+      const col = res.data.collectionUpdate.collection!;
+      return {
+        markdown: `Updated collection **${col.title}** (id ${gidToId(col.id)}, handle ${col.handle}).`,
+        structured: { collection: stripGids(col) },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_add_products_to_collection",
+    title: "Add products to collection",
+    description:
+      "Add products to a MANUAL collection. Fails for smart collections (their membership is " +
+      "rule-based) and if a product is already in the collection.",
+    inputSchema: {
+      collectionId: z.string().describe("Manual collection id (numeric or GID)."),
+      productIds: z.array(z.string()).min(1).describe("Product ids to add (numeric or GID)."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    handler: async (args, c) => {
+      const res = await c.request<{
+        collectionAddProducts: {
+          collection: { id: string; title: string } | null;
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(ADD_PRODUCTS_TO_COLLECTION, {
+        id: toGid("Collection", args.collectionId),
+        productIds: args.productIds.map((id) => toGid("Product", id)),
+      });
+      assertNoUserErrors(res.data.collectionAddProducts.userErrors);
+      return {
+        markdown: `Added ${args.productIds.length} product(s) to collection ${gidToId(args.collectionId)}.`,
+        structured: {
+          collectionId: gidToId(args.collectionId),
+          productIds: args.productIds.map((id) => gidToId(id)),
+        },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_remove_products_from_collection",
+    title: "Remove products from collection",
+    description:
+      "Remove products from a MANUAL collection. Shopify processes this asynchronously and returns " +
+      "a job id.",
+    inputSchema: {
+      collectionId: z.string().describe("Manual collection id (numeric or GID)."),
+      productIds: z.array(z.string()).min(1).describe("Product ids to remove (numeric or GID)."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    handler: async (args, c) => {
+      const res = await c.request<{
+        collectionRemoveProducts: {
+          job: { id: string; done: boolean } | null;
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(REMOVE_PRODUCTS_FROM_COLLECTION, {
+        id: toGid("Collection", args.collectionId),
+        productIds: args.productIds.map((id) => toGid("Product", id)),
+      });
+      assertNoUserErrors(res.data.collectionRemoveProducts.userErrors);
+      const job = res.data.collectionRemoveProducts.job;
+      return {
+        markdown:
+          `Queued removal of ${args.productIds.length} product(s) from collection ${gidToId(args.collectionId)}` +
+          (job ? ` (job ${gidToId(job.id)}${job.done ? ", done" : ", processing"}).` : "."),
+        structured: {
+          collectionId: gidToId(args.collectionId),
+          productIds: args.productIds.map((id) => gidToId(id)),
+          job,
+        },
         cost: res.cost,
       };
     },
