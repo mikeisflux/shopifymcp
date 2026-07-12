@@ -933,14 +933,28 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
     name: "shopify_set_metafield",
     title: "Set a metafield",
     description:
-      "Set (create or overwrite) a metafield on a product or variant. Metafields store custom " +
-      "structured data. Provide the value as a string matching the given type.",
+      "Set (create or overwrite) a metafield on any supported resource — product, variant, " +
+      "collection, customer, order, draft order, page, blog, article, or the shop itself. " +
+      "Metafields store custom structured data. Provide the value as a string matching the type.",
     inputSchema: {
       ownerType: z
-        .enum(["product", "variant"])
+        .enum([
+          "product",
+          "variant",
+          "collection",
+          "customer",
+          "order",
+          "draft_order",
+          "page",
+          "blog",
+          "article",
+          "shop",
+        ])
         .default("product")
         .describe("Which resource the metafield belongs to."),
-      ownerId: z.string().describe("Id of the product or variant (numeric or GID)."),
+      ownerId: z
+        .string()
+        .describe("Id of the owner resource (numeric or GID). Ignored for ownerType 'shop'."),
       namespace: z.string().describe('Metafield namespace, e.g. "custom".'),
       key: z.string().describe('Metafield key, e.g. "material".'),
       value: z.string().describe("The value, as a string matching `type`."),
@@ -954,7 +968,24 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     handler: async (args, c) => {
-      const ownerResource = args.ownerType === "variant" ? "ProductVariant" : "Product";
+      const OWNER_RESOURCE: Record<string, string> = {
+        product: "Product",
+        variant: "ProductVariant",
+        collection: "Collection",
+        customer: "Customer",
+        order: "Order",
+        draft_order: "DraftOrder",
+        page: "Page",
+        blog: "Blog",
+        article: "Article",
+        shop: "Shop",
+      };
+      const ownerResource = OWNER_RESOURCE[args.ownerType]!;
+      // The Shop owner GID is fixed per store; resolve it, otherwise build from the given id.
+      const ownerGid =
+        args.ownerType === "shop"
+          ? (await c.request<{ shop: { id: string } }>(`query { shop { id } }`)).data.shop.id
+          : toGid(ownerResource, args.ownerId);
       const res = await c.request<{
         metafieldsSet: {
           metafields: Array<{
@@ -969,7 +1000,7 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
       }>(SET_METAFIELDS, {
         metafields: [
           {
-            ownerId: toGid(ownerResource, args.ownerId),
+            ownerId: ownerGid,
             namespace: args.namespace,
             key: args.key,
             value: args.value,
