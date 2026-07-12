@@ -276,6 +276,7 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_complete_draft_order` | Turn a draft order into a real order. |
 | `shopify_create_discount_code` | Basic percentage/fixed code discount. |
 | `shopify_tag_resource` | Add/remove tags on a product, order, customer, or draft order. |
+| `shopify_update_shipping_package` | Update a saved shipping package (name, type, weight, dimensions, default). Needs a shipping scope; package GID must be supplied (no list query exists in the API). |
 
 ### Errors
 
@@ -305,6 +306,10 @@ read_products,read_orders,read_customers,read_draft_orders,read_inventory,read_l
 
 > `shopify_tag_resource` needs the write scope for whichever resource you tag (`write_products`,
 > `write_orders`, `write_customers`).
+>
+> `shopify_update_shipping_package` needs a shipping/delivery scope (`write_shipping`). There is **no
+> query to list shipping packages** in the Admin API, so you must supply the package's GID — find it
+> in the admin URL when editing the package (Settings → Shipping → Packages).
 
 If a call returns an access-denied error, the message names the missing scope — add it to the app's
 scopes, **release a new app version, and reinstall/update** the app on the store for the change to

@@ -79,6 +79,14 @@ const RESOURCE_GID: Record<string, string> = {
   draft_order: "DraftOrder",
 };
 
+const UPDATE_SHIPPING_PACKAGE = /* GraphQL */ `
+  mutation UpdateShippingPackage($id: ID!, $shippingPackage: CustomShippingPackageInput!) {
+    shippingPackageUpdate(id: $id, shippingPackage: $shippingPackage) {
+      userErrors { field message }
+    }
+  }
+`;
+
 /** Rejects any operation containing a GraphQL `mutation` keyword. */
 function assertReadOnly(query: string): void {
   if (/\bmutation\b/i.test(query)) {
@@ -305,6 +313,85 @@ export function registerWriteMiscTools(server: McpServer, client: ShopifyClient)
       return {
         markdown: `${args.action === "add" ? "Added" : "Removed"} tag(s) [${args.tags.join(", ")}] ${args.action === "add" ? "to" : "from"} ${args.resourceType} ${gidToId(args.id)}.`,
         structured: { id: gidToId(gid), tags: args.tags, action: args.action },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_update_shipping_package",
+    title: "Update a saved shipping package",
+    description:
+      "Update one of the store's saved shipping packages (Settings → Shipping → Packages) — its " +
+      "name, type, empty weight, dimensions, and/or default flag. Requires a shipping/delivery " +
+      "scope (e.g. write_shipping). Note: Shopify's Admin API has NO query to list packages, so " +
+      "you must supply the package's GID (find it in the admin URL when editing the package).",
+    inputSchema: {
+      id: z
+        .string()
+        .describe(
+          "The shipping package GID, e.g. gid://shopify/CustomShippingPackage/123. Find it in the " +
+            "admin URL when editing the package (there is no API to list packages).",
+        ),
+      name: z.string().optional().describe("Package name/label."),
+      type: z
+        .string()
+        .optional()
+        .describe('Shopify ShippingPackageType, e.g. "BOX", "ENVELOPE", "SOFT_PACKAGE".'),
+      weight: z
+        .object({
+          value: z.number().describe("Empty package weight value."),
+          unit: z.enum(["GRAMS", "KILOGRAMS", "OUNCES", "POUNDS"]).describe("Weight unit."),
+        })
+        .optional()
+        .describe("Weight of the empty package."),
+      dimensions: z
+        .object({
+          length: z.number(),
+          width: z.number(),
+          height: z.number(),
+          unit: z
+            .enum(["MILLIMETERS", "CENTIMETERS", "METERS", "INCHES", "FEET", "YARDS"])
+            .describe("Length unit for all three dimensions."),
+        })
+        .optional()
+        .describe("Package dimensions."),
+      isDefault: z
+        .boolean()
+        .optional()
+        .describe("Set true to make this the store's default package."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      const shippingPackage: Record<string, unknown> = {};
+      if (args.name !== undefined) shippingPackage.name = args.name;
+      if (args.type !== undefined) shippingPackage.type = args.type;
+      if (args.weight !== undefined) {
+        shippingPackage.weight = { value: args.weight.value, unit: args.weight.unit };
+      }
+      if (args.dimensions !== undefined) {
+        shippingPackage.dimensions = {
+          length: args.dimensions.length,
+          width: args.dimensions.width,
+          height: args.dimensions.height,
+          unit: args.dimensions.unit,
+        };
+      }
+      if (args.isDefault !== undefined) shippingPackage.default = args.isDefault;
+
+      const res = await c.request<{
+        shippingPackageUpdate: {
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(UPDATE_SHIPPING_PACKAGE, {
+        // Pass the GID through as-is (there's no numeric->GID mapping we can rely on here).
+        id: args.id,
+        shippingPackage,
+      });
+      assertNoUserErrors(res.data.shippingPackageUpdate.userErrors);
+      return {
+        markdown: `Updated shipping package ${gidToId(args.id)}.`,
+        structured: { id: gidToId(args.id), updated: shippingPackage },
         cost: res.cost,
       };
     },
