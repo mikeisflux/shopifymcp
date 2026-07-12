@@ -256,6 +256,7 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_get_inventory_levels` | By SKU or inventory item, across locations (available/on-hand/committed). |
 | `shopify_search` | Quick cross-resource search (products, orders, customers). |
 | `shopify_list_publications` | List sales channels (publications) with ids. Needs `read_publications`. |
+| `shopify_list_menus` | List navigation menus with their full item trees (up to 3 levels). Needs `read_online_store_navigation`. |
 | `shopify_graphql_query` | Escape hatch: run an arbitrary **read-only** GraphQL query. Rejects any string containing a `mutation`. |
 
 ### Write tools (only when `ENABLE_WRITES=true`)
@@ -283,6 +284,7 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_add_products_to_collection` | Add products to a manual collection. |
 | `shopify_remove_products_from_collection` | Remove products from a manual collection (async job). |
 | `shopify_publish_resource` | Publish/unpublish products or a whole collection's products to sales channels (all or specific). Needs `write_publications`. |
+| `shopify_upsert_menu` | Create/update a navigation menu with a recursive item tree (link items to collections/products/URLs). Merge mode avoids replacing the whole menu. Needs `write_online_store_navigation`. |
 | `shopify_update_shipping_package` | Update a saved shipping package (name, type, weight, dimensions, default). Needs a shipping scope; package GID must be supplied (no list query exists in the API). |
 
 ### Errors
@@ -321,6 +323,10 @@ read_products,read_orders,read_customers,read_draft_orders,read_inventory,read_l
 > `shopify_list_publications` needs `read_publications`; `shopify_publish_resource` needs
 > `write_publications`. Add these to the app's scopes (and reinstall/update) before publishing to
 > sales channels.
+>
+> `shopify_list_menus` needs `read_online_store_navigation`; `shopify_upsert_menu` needs
+> `write_online_store_navigation`. Menu items link to resources via `type` + `resourceId` (e.g. a
+> `COLLECTION` item with the collection GID as `resourceId`), or `HTTP` + `url` for arbitrary links.
 
 If a call returns an access-denied error, the message names the missing scope — add it to the app's
 scopes, **release a new app version, and reinstall/update** the app on the store for the change to

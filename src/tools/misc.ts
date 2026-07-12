@@ -164,6 +164,100 @@ const COLLECTION_PRODUCT_IDS_FOR_PUBLISH = /* GraphQL */ `
   }
 `;
 
+// ─── Navigation menus ────────────────────────────────────────────────────────
+
+// Menu items nest up to 3 levels deep.
+const MENU_ITEM_FIELDS = /* GraphQL */ `
+  id title type url resourceId
+  items {
+    id title type url resourceId
+    items { id title type url resourceId }
+  }
+`;
+
+const LIST_MENUS = /* GraphQL */ `
+  query ListMenus($first: Int!) {
+    menus(first: $first) {
+      nodes { id handle title items { ${MENU_ITEM_FIELDS} } }
+    }
+  }
+`;
+
+const GET_MENU = /* GraphQL */ `
+  query GetMenu($id: ID!) {
+    menu(id: $id) { id handle title items { ${MENU_ITEM_FIELDS} } }
+  }
+`;
+
+const MENU_CREATE = /* GraphQL */ `
+  mutation MenuCreate($title: String!, $handle: String!, $items: [MenuItemCreateInput!]!) {
+    menuCreate(title: $title, handle: $handle, items: $items) {
+      menu { id handle title }
+      userErrors { field message }
+    }
+  }
+`;
+
+const MENU_UPDATE = /* GraphQL */ `
+  mutation MenuUpdate($id: ID!, $title: String!, $handle: String!, $items: [MenuItemUpdateInput!]!) {
+    menuUpdate(id: $id, title: $title, handle: $handle, items: $items) {
+      menu { id handle title }
+      userErrors { field message }
+    }
+  }
+`;
+
+interface MenuItemInput {
+  title: string;
+  type: string;
+  url?: string;
+  resourceId?: string;
+  items?: MenuItemInput[];
+}
+
+const menuItemSchema: z.ZodType<MenuItemInput> = z.lazy(() =>
+  z.object({
+    title: z.string().describe("Item label shown in the nav."),
+    type: z
+      .string()
+      .describe(
+        'MenuItemType, e.g. "COLLECTION", "CATALOG", "PRODUCT", "PAGE", "BLOG", "ARTICLE", ' +
+          '"FRONTPAGE", "SEARCH", "SHOP_POLICY", or "HTTP" (raw URL).',
+      ),
+    url: z.string().optional().describe('Link URL. Required for type "HTTP".'),
+    resourceId: z
+      .string()
+      .optional()
+      .describe('GID of the linked resource (e.g. a collection GID) for COLLECTION/PRODUCT/PAGE. Omit for FRONTPAGE/HTTP.'),
+    items: z.array(menuItemSchema).optional().describe("Nested sub-items (max 3 levels total)."),
+  }),
+);
+
+/** Converts validated caller items into the GraphQL menu-item input shape. */
+function toMenuItemInput(items: MenuItemInput[]): Array<Record<string, unknown>> {
+  return items.map((it) => {
+    const o: Record<string, unknown> = { title: it.title, type: it.type };
+    if (it.url !== undefined) o.url = it.url;
+    if (it.resourceId !== undefined) o.resourceId = it.resourceId;
+    if (it.items && it.items.length > 0) o.items = toMenuItemInput(it.items);
+    return o;
+  });
+}
+
+/** Converts existing menu items (from a query, with ids) back into input, preserving ids. */
+function existingMenuItemsToInput(
+  items: Array<{ id: string; title: string; type: string; url: string | null; resourceId: string | null; items?: unknown }>,
+): Array<Record<string, unknown>> {
+  return items.map((it) => {
+    const o: Record<string, unknown> = { id: it.id, title: it.title, type: it.type };
+    if (it.url) o.url = it.url;
+    if (it.resourceId) o.resourceId = it.resourceId;
+    const children = (it.items as typeof items) ?? [];
+    if (children.length > 0) o.items = existingMenuItemsToInput(children);
+    return o;
+  });
+}
+
 /** Zod shape for a smart-collection rule set, shared by create/update. */
 const ruleSetShape = z
   .object({
@@ -396,6 +490,39 @@ export function registerReadMiscTools(server: McpServer, client: ShopifyClient):
             ? "No publications found."
             : markdownTable(["ID", "Name"], nodes.map((p) => [gidToId(p.id), p.name])),
         structured: { publications: stripGids(nodes) },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_list_menus",
+    title: "List navigation menus",
+    description:
+      "List the online store's navigation menus with their handles, titles, and full item trees " +
+      "(up to 3 levels). Use this to get a menu's GID and current items before updating. " +
+      "Requires the read_online_store_navigation scope.",
+    inputSchema: {
+      first: z.number().int().min(1).max(100).default(50).describe("Max menus to return."),
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      const res = await c.request<{
+        menus: {
+          nodes: Array<{ id: string; handle: string; title: string; items: unknown[] }>;
+        };
+      }>(LIST_MENUS, { first: args.first });
+      const nodes = res.data.menus.nodes;
+
+      const countItems = (items: any[]): number =>
+        items.reduce((n, it) => n + 1 + countItems(it.items ?? []), 0);
+      const table = markdownTable(
+        ["ID", "Handle", "Title", "Items"],
+        nodes.map((m) => [gidToId(m.id), m.handle, m.title, countItems(m.items as any[])]),
+      );
+      return {
+        markdown: nodes.length === 0 ? "No menus found." : table,
+        structured: { menus: stripGids(nodes) },
         cost: res.cost,
       };
     },
@@ -895,6 +1022,92 @@ export function registerWriteMiscTools(server: McpServer, client: ShopifyClient)
           errors: errors.slice(0, 50),
         },
         cost: undefined,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_upsert_menu",
+    title: "Create or update a navigation menu",
+    description:
+      "Create a navigation menu (omit `id`) or update an existing one (`id`). Items are a recursive " +
+      "tree (max 3 levels): each item is {title, type, url?, resourceId?, items?}. " +
+      "IMPORTANT: menuUpdate REPLACES the whole item tree — pass the FULL tree you want. To just add " +
+      "items to an existing menu without rebuilding it, set `merge: true` and the server reads the " +
+      "current menu, appends your top-level items (skipping duplicate titles), and writes it back. " +
+      "Requires the write_online_store_navigation scope.",
+    inputSchema: {
+      id: z.string().optional().describe("Menu GID to update. Omit to create a new menu."),
+      title: z.string().describe("Menu title."),
+      handle: z.string().describe('Menu handle (unique), e.g. "main-menu" or "shop-by-series".'),
+      items: z
+        .array(menuItemSchema)
+        .describe("The menu item tree. On update this REPLACES all items unless merge=true."),
+      merge: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Update only: append `items` (top-level) to the existing menu instead of replacing it. " +
+            "Existing items are preserved; incoming items whose title already exists are skipped.",
+        ),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    handler: async (args, c) => {
+      let finalItems = toMenuItemInput(args.items);
+
+      if (args.id && args.merge) {
+        const menuRes = await c.request<{
+          menu: {
+            items: Array<{
+              id: string;
+              title: string;
+              type: string;
+              url: string | null;
+              resourceId: string | null;
+              items?: unknown;
+            }>;
+          } | null;
+        }>(GET_MENU, { id: toGid("Menu", args.id) });
+        if (!menuRes.data.menu) throw new Error(`No menu found with id ${gidToId(args.id)}.`);
+        const existing = menuRes.data.menu.items;
+        const existingTitles = new Set(existing.map((i) => i.title));
+        const toAppend = finalItems.filter((i) => !existingTitles.has(i.title as string));
+        finalItems = [...existingMenuItemsToInput(existing), ...toAppend];
+      }
+
+      if (args.id) {
+        const res = await c.request<{
+          menuUpdate: {
+            menu: { id: string; handle: string; title: string } | null;
+            userErrors: Array<{ field: string[] | null; message: string }>;
+          };
+        }>(MENU_UPDATE, {
+          id: toGid("Menu", args.id),
+          title: args.title,
+          handle: args.handle,
+          items: finalItems,
+        });
+        assertNoUserErrors(res.data.menuUpdate.userErrors);
+        const menu = res.data.menuUpdate.menu!;
+        return {
+          markdown: `Updated menu **${menu.title}** (id ${gidToId(menu.id)}, handle ${menu.handle}) with ${finalItems.length} top-level item(s).`,
+          structured: { menu: stripGids(menu), topLevelItems: finalItems.length },
+          cost: res.cost,
+        };
+      }
+
+      const res = await c.request<{
+        menuCreate: {
+          menu: { id: string; handle: string; title: string } | null;
+          userErrors: Array<{ field: string[] | null; message: string }>;
+        };
+      }>(MENU_CREATE, { title: args.title, handle: args.handle, items: finalItems });
+      assertNoUserErrors(res.data.menuCreate.userErrors);
+      const menu = res.data.menuCreate.menu!;
+      return {
+        markdown: `Created menu **${menu.title}** (id ${gidToId(menu.id)}, handle ${menu.handle}) with ${finalItems.length} top-level item(s).`,
+        structured: { menu: stripGids(menu), topLevelItems: finalItems.length },
+        cost: res.cost,
       };
     },
   });
