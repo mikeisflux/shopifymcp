@@ -433,6 +433,29 @@ const SET_METAFIELDS = /* GraphQL */ `
   }
 `;
 
+const VARIANT_MEDIA = /* GraphQL */ `
+  query VariantMedia($id: ID!, $first: Int!, $after: String) {
+    product(id: $id) {
+      variants(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          media(first: 50) { nodes { id } }
+        }
+      }
+    }
+  }
+`;
+
+const APPEND_VARIANT_MEDIA = /* GraphQL */ `
+  mutation AppendVariantMedia($productId: ID!, $variantMedia: [ProductVariantAppendMediaInput!]!) {
+    productVariantAppendMedia(productId: $productId, variantMedia: $variantMedia) {
+      product { id }
+      userErrors { code field message }
+    }
+  }
+`;
+
 export function registerProductWriteTools(server: McpServer, client: ShopifyClient): void {
   registerTool(server, client, {
     name: "shopify_create_product",
@@ -922,6 +945,120 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
           ? `Set metafield **${metafield.namespace}.${metafield.key}** = \`${metafield.value}\` (${metafield.type}) on ${args.ownerType} ${gidToId(args.ownerId)}.`
           : "Metafield set.",
         structured: { metafield: metafield ? stripGids(metafield) : null },
+        cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_assign_variant_media",
+    title: "Assign media to variants",
+    description:
+      "Attach existing product media (images) to specific variants. Two modes: give `mediaId` alone " +
+      "to attach that one image to EVERY variant of the product, or give `variantMedia` for explicit " +
+      "control. The media must already belong to the product (see shopify_get_product / " +
+      "shopify_add_product_media) and be finished processing. Already-attached links are skipped, so " +
+      "re-running is safe (no duplicates).",
+    inputSchema: {
+      productId: z.string().describe("Product that owns the media and variants (numeric or GID)."),
+      mediaId: z
+        .string()
+        .optional()
+        .describe(
+          "Convenience mode: attach this one media id to every variant of the product. " +
+            "Get media ids from shopify_get_product's Media table. Omit `variantMedia` when using this.",
+        ),
+      variantMedia: z
+        .array(
+          z.object({
+            variantId: z.string().describe("Variant id (numeric or GID)."),
+            mediaIds: z.array(z.string()).min(1).describe("Media ids to attach to this variant."),
+          }),
+        )
+        .optional()
+        .describe("Explicit mode: attach specific media to specific variants."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      const hasExplicit = Array.isArray(args.variantMedia) && args.variantMedia.length > 0;
+      const hasConvenience = args.mediaId !== undefined;
+      if (hasExplicit === hasConvenience) {
+        throw new Error(
+          "Provide exactly one of: `mediaId` (attach to all variants) or `variantMedia` (explicit).",
+        );
+      }
+
+      const productGid = toGid("Product", args.productId);
+
+      // Fetch each variant's currently-attached media for dedupe.
+      const existing = new Map<string, Set<string>>();
+      let after: string | null = null;
+      do {
+        const r: {
+          data: {
+            product: {
+              variants: {
+                pageInfo: { hasNextPage: boolean; endCursor: string | null };
+                nodes: Array<{ id: string; media: { nodes: Array<{ id: string }> } }>;
+              };
+            } | null;
+          };
+        } = await c.request(VARIANT_MEDIA, { id: productGid, first: 100, after });
+        if (!r.data.product) throw new Error(`No product found with id ${gidToId(args.productId)}.`);
+        for (const v of r.data.product.variants.nodes) {
+          existing.set(v.id, new Set(v.media.nodes.map((m) => m.id)));
+        }
+        after = r.data.product.variants.pageInfo.hasNextPage
+          ? r.data.product.variants.pageInfo.endCursor
+          : null;
+      } while (after);
+
+      // Build deduped assignments.
+      const assignments: Array<{ variantId: string; mediaIds: string[] }> = [];
+      if (hasConvenience) {
+        const mediaGid = toGid("MediaImage", args.mediaId!);
+        for (const [variantGid, mediaSet] of existing) {
+          if (!mediaSet.has(mediaGid)) assignments.push({ variantId: variantGid, mediaIds: [mediaGid] });
+        }
+      } else {
+        for (const vm of args.variantMedia!) {
+          const variantGid = toGid("ProductVariant", vm.variantId);
+          const mediaSet = existing.get(variantGid) ?? new Set<string>();
+          const toAdd = vm.mediaIds
+            .map((id) => toGid("MediaImage", id))
+            .filter((g) => !mediaSet.has(g));
+          if (toAdd.length > 0) assignments.push({ variantId: variantGid, mediaIds: toAdd });
+        }
+      }
+
+      if (assignments.length === 0) {
+        return {
+          markdown: "No changes — the media is already attached to the target variant(s).",
+          structured: { productId: gidToId(args.productId), assigned: 0 },
+          cost: undefined,
+        };
+      }
+
+      const res = await c.request<{
+        productVariantAppendMedia: {
+          product: { id: string } | null;
+          userErrors: Array<{ code?: string; field: string[] | null; message: string }>;
+        };
+      }>(APPEND_VARIANT_MEDIA, { productId: productGid, variantMedia: assignments });
+      assertNoUserErrors(res.data.productVariantAppendMedia.userErrors);
+
+      const linksAdded = assignments.reduce((n, a) => n + a.mediaIds.length, 0);
+      return {
+        markdown:
+          `Attached media to ${assignments.length} variant(s) on product ${gidToId(args.productId)} ` +
+          `(${linksAdded} link(s) added; already-attached ones skipped).`,
+        structured: {
+          productId: gidToId(args.productId),
+          assignments: assignments.map((a) => ({
+            variantId: gidToId(a.variantId),
+            mediaIds: a.mediaIds.map((m) => gidToId(m)),
+          })),
+        },
         cost: res.cost,
       };
     },
