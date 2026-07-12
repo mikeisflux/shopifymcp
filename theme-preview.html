@@ -350,6 +350,40 @@
   </div>
 </div></section>
 
+<!-- MARQUEE -->
+<style>
+  .mq{padding-block:clamp(28px,4vw,48px);overflow:hidden}
+  .mq .head{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;margin-bottom:18px}
+  .mq .head h2{font-family:var(--f-display);font-weight:800;font-stretch:condensed;text-transform:uppercase;font-size:clamp(22px,3vw,34px);line-height:.95;margin:0}
+  .mq-viewport{position:relative;-webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent)}
+  .mq-track{display:flex;gap:var(--gap);width:max-content;animation:mq-scroll 45s linear infinite}
+  .mq:hover .mq-track{animation-play-state:paused}
+  .mq-item{width:158px;flex:0 0 auto}
+  @keyframes mq-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+  @media(prefers-reduced-motion:reduce){.mq-viewport{overflow-x:auto;mask-image:none}.mq-track{animation:none}}
+</style>
+<section class="mq"><div class="wrap head"><div><span class="eyebrow">Fresh ink</span><h2>Just landed</h2></div><a class="link-more" href="#">See all →</a></div>
+  <div class="mq-viewport"><div class="mq-track">
+    <div class="mq-item"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/Boobs_2_CVR_B_Glam_Shot.png?v=1744760247"><span class="card__code">B2-03</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$10.00</span></div></div></a></div>
+    <div class="mq-item"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-E-ASM.png?v=1695444954"><span class="card__code">B2-13</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$50.00</span></div></div></a></div>
+    <div class="mq-item"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_C_Laya_web.png?v=1739923072"><span class="card__code">SW1-05</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$20.00</span></div></div></a></div>
+    <div class="mq-item"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-D-Alex-Jones.png?v=1695444577"><span class="card__code">B2-11</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$10.00</span></div></div></a></div>
+    <div class="mq-item"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-F-Show-Me.png?v=1695465398"><span class="card__code">B2-14</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$10.00</span></div></div></a></div>
+    <div class="mq-item"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_B_Booba_Fett_web.png?v=1739923147"><span class="card__code">SW1-03</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$20.00</span></div></div></a></div>
+    <div class="mq-item"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-A-Faught.png?v=1695442955"><span class="card__code">B2-01</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$10.00</span></div></div></a></div>
+    <div class="mq-item"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_E_Luka_web.png?v=1739922466"><span class="card__code">SW1-09</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$20.00</span></div></div></a></div>
+    <!-- duplicate for seamless loop -->
+    <div class="mq-item" aria-hidden="true"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/Boobs_2_CVR_B_Glam_Shot.png?v=1744760247"><span class="card__code">B2-03</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$10.00</span></div></div></a></div>
+    <div class="mq-item" aria-hidden="true"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-E-ASM.png?v=1695444954"><span class="card__code">B2-13</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$50.00</span></div></div></a></div>
+    <div class="mq-item" aria-hidden="true"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_C_Laya_web.png?v=1739923072"><span class="card__code">SW1-05</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$20.00</span></div></div></a></div>
+    <div class="mq-item" aria-hidden="true"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-D-Alex-Jones.png?v=1695444577"><span class="card__code">B2-11</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$10.00</span></div></div></a></div>
+    <div class="mq-item" aria-hidden="true"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-F-Show-Me.png?v=1695465398"><span class="card__code">B2-14</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$10.00</span></div></div></a></div>
+    <div class="mq-item" aria-hidden="true"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_B_Booba_Fett_web.png?v=1739923147"><span class="card__code">SW1-03</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$20.00</span></div></div></a></div>
+    <div class="mq-item" aria-hidden="true"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/BOOBS2-CVR-A-Faught.png?v=1695442955"><span class="card__code">B2-01</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$10.00</span></div></div></a></div>
+    <div class="mq-item" aria-hidden="true"><a class="card"><div class="card__media"><img src="https://cdn.shopify.com/s/files/1/0755/7624/6560/files/CVR_E_Luka_web.png?v=1739922466"><span class="card__code">SW1-09</span></div><div class="card__body"><div class="card__meta"><span class="card__price">$20.00</span></div></div></a></div>
+  </div></div>
+</section>
+
 <!-- EXCLUSIVES -->
 <section class="section exclusives" style="padding:0"><div class="rail-band"><div class="wrap" style="padding-block:clamp(30px,4vw,48px)">
   <div class="section-head" style="border-color:#4a3d24"><div><span class="eyebrow eyebrow--gold">Numbered &amp; limited</span><h2>Exclusives &amp; LTD editions</h2></div><a class="link-more" href="#">Every exclusive →</a></div>

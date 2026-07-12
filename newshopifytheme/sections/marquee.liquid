@@ -1,0 +1,69 @@
+{%- comment -%}
+  Auto-scrolling cover strip ("Just landed"). Covers glide sideways in a
+  seamless loop, pause on hover, and fall back to a normal scroll strip when
+  the visitor prefers reduced motion. Pulls from a chosen collection.
+{%- endcomment -%}
+{%- liquid
+  assign coll = collections[section.settings.collection]
+  assign count = section.settings.count
+  assign dur = section.settings.speed
+-%}
+<style>
+  .mq-{{ section.id }} { padding-block: clamp(28px, 4vw, 48px); overflow: hidden; }
+  .mq-{{ section.id }} .head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 18px; }
+  .mq-{{ section.id }} .head h2 { font-family: var(--f-display); font-weight: 800; font-stretch: condensed; text-transform: uppercase; font-size: clamp(22px, 3vw, 34px); line-height: .95; margin: 0; }
+  .mq-viewport-{{ section.id }} {
+    position: relative;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+            mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+  }
+  .mq-track-{{ section.id }} { display: flex; gap: var(--gap); width: max-content; animation: mq-scroll-{{ section.id }} {{ dur }}s linear infinite; }
+  .mq-{{ section.id }}:hover .mq-track-{{ section.id }} { animation-play-state: paused; }
+  .mq-item-{{ section.id }} { width: 158px; flex: 0 0 auto; }
+  @keyframes mq-scroll-{{ section.id }} { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  @media (prefers-reduced-motion: reduce) {
+    .mq-viewport-{{ section.id }} { overflow-x: auto; -webkit-mask-image: none; mask-image: none; }
+    .mq-track-{{ section.id }} { animation: none; }
+  }
+</style>
+
+<section class="mq-{{ section.id }}">
+  <div class="wrap head">
+    <div>
+      {%- if section.settings.eyebrow != blank -%}<span class="eyebrow">{{ section.settings.eyebrow }}</span>{%- endif -%}
+      <h2>{{ section.settings.title }}</h2>
+    </div>
+    {%- if coll != empty -%}<a class="link-more" href="{{ coll.url }}">See all →</a>{%- endif -%}
+  </div>
+
+  <div class="mq-viewport-{{ section.id }}">
+    <div class="mq-track-{{ section.id }}">
+      {%- comment -%} Render twice for a seamless loop. {%- endcomment -%}
+      {%- for pass in (1..2) -%}
+        {%- if coll != empty and coll.products.size > 0 -%}
+          {%- for product in coll.products limit: count -%}
+            <div class="mq-item-{{ section.id }}" {% if pass == 2 %}aria-hidden="true"{% endif %}>{% render 'product-card', product: product %}</div>
+          {%- endfor -%}
+        {%- else -%}
+          {%- for i in (1..8) -%}
+            <div class="mq-item-{{ section.id }}"><div class="card"><div class="card__media">{{ 'product-1' | placeholder_svg_tag: 'placeholder' }}</div><div class="card__body"><h3 class="card__title">Example cover</h3><div class="card__meta"><span class="card__price">$10.00</span></div></div></div></div>
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Cover marquee",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "Fresh ink" },
+    { "type": "text", "id": "title", "label": "Heading", "default": "Just landed" },
+    { "type": "collection", "id": "collection", "label": "Collection" },
+    { "type": "range", "id": "count", "label": "Covers in the loop", "min": 6, "max": 20, "step": 1, "default": 12 },
+    { "type": "range", "id": "speed", "label": "Scroll duration", "min": 20, "max": 90, "step": 5, "unit": "s", "default": 45, "info": "Higher = slower." }
+  ],
+  "presets": [{ "name": "Cover marquee" }]
+}
+{% endschema %}

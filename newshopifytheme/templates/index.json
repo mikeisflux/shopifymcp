@@ -41,6 +41,10 @@
         "show_filters": true
       }
     },
+    "marquee": {
+      "type": "marquee",
+      "settings": { "eyebrow": "Fresh ink", "title": "Just landed", "collection": "best-selling", "count": 12, "speed": 45 }
+    },
     "exclusives": {
       "type": "exclusives-rail",
       "settings": {
@@ -73,5 +77,5 @@
       }
     }
   },
-  "order": ["slideshow", "series", "latest", "exclusives", "artists", "newsletter"]
+  "order": ["slideshow", "series", "latest", "marquee", "exclusives", "artists", "newsletter"]
 }
