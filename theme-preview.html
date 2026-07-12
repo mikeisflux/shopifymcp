@@ -52,8 +52,9 @@
   .act-link:hover{color:var(--red)} .act-link svg{width:20px;height:20px}
   /* nav bar + dark mega menu */
   .nav-bar{border-top:1px solid var(--hair)}
-  .nav-list{display:flex;gap:2px;margin:0;padding:0;list-style:none}
+  .nav-list{display:flex;gap:2px;margin:0;padding:0;list-style:none;position:relative}
   .nav-item{position:relative}
+  .nav-item--mega{position:static}
   .nav-top{display:inline-flex;align-items:center;gap:6px;height:46px;padding:0 14px;font-family:var(--f-mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);cursor:pointer}
   .nav-item:hover .nav-top{color:var(--bone)}
   .nav-top .chev{width:12px;height:12px;opacity:.7;transition:transform .18s}
@@ -65,8 +66,8 @@
   .dropdown-list{display:flex;flex-direction:column}
   .dropdown-list a{padding:9px 12px;border-radius:3px;color:var(--muted);font-size:13.5px}
   .dropdown-list a:hover{background:var(--ink-2);color:var(--bone)}
-  .dropdown--mega{left:50%;transform:translate(-50%,6px);width:min(92vw,860px);padding:18px}
-  .nav-item:hover>.dropdown--mega{transform:translate(-50%,0)}
+  .dropdown--mega{left:0;right:0;width:auto;transform:translateY(6px);padding:20px}
+  .nav-item:hover>.dropdown--mega{transform:translateY(0)}
   .mega-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px 20px}
   .mega-title{display:block;font-family:var(--f-display);font-weight:800;font-stretch:condensed;text-transform:uppercase;font-size:15px;color:var(--bone);padding:4px 0}
   .mega-title:hover{color:var(--red)}
@@ -189,7 +190,7 @@
   </div>
   <nav class="nav-bar"><ul class="nav-list wrap">
     <li class="nav-item"><a class="nav-top" href="#">Home</a></li>
-    <li class="nav-item"><span class="nav-top">Mature Titles <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></span>
+    <li class="nav-item nav-item--mega"><span class="nav-top">Mature Titles <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></span>
       <div class="dropdown dropdown--mega"><div class="mega-grid">
         <div><a class="mega-title" href="#hub">Boobs</a><div class="mega-subs"><a href="#">Books</a><a href="#">Prints</a><a href="#">Digital</a></div></div>
         <div><a class="mega-title" href="#hub">Dead Sexy</a><div class="mega-subs"><a href="#">Books</a><a href="#">Prints</a><a href="#">Digital</a><a href="#">Merch</a></div></div>

@@ -2,49 +2,75 @@
   Title hub — the on-brand replacement for the old "Options" page.
   Assign this section's template (page.title) to every title page.
 
-  AUTO MODE (default): the hub derives each title's format collections from
-  the PAGE HANDLE, e.g. page "dead-sexy-1" →
+  AUTO MODE (default): resolves each title's format collections by direct
+  handle lookup from the PAGE HANDLE, e.g. page "dead-sexy-1" →
     dead-sexy-1-books / -prints / -digital (or -digitals) / -merch.
-  So one template serves every title, wired up automatically — only the
-  chips whose collection actually exists are shown.
+  Only the formats that actually exist (and have products) show up, so one
+  template serves every title with no per-page setup.
 
   MANUAL MODE: turn off "Auto-detect" and add Format blocks by hand.
 {%- endcomment -%}
 {%- liquid
+  assign h = page.handle
   assign auto = section.settings.auto_from_handle
-  assign prefix = page.handle | append: '-'
 
   assign c_books = false
   assign c_prints = false
   assign c_digital = false
   assign c_merch = false
 
-  # Scan every collection whose handle starts with this title's handle
-  # (e.g. page "dead-sexy-1" → dead-sexy-1-books / -prints / -digital / -merch)
-  # and bucket it by what the handle contains. Robust to the singular/plural
-  # and capitalisation drift in the underlying tags.
-  if auto and page.handle != blank
-    for coll in collections
-      assign hd = coll.handle
-      if hd contains prefix
-        if hd contains 'book'
-          assign c_books = coll
-        elsif hd contains 'print'
-          assign c_prints = coll
-        elsif hd contains 'digital'
-          assign c_digital = coll
-        elsif hd contains 'merch'
-          assign c_merch = coll
-        endif
-      endif
-    endfor
+  if auto and h != blank
+    assign hb = h | append: '-books'
+    assign t = collections[hb]
+    unless t == empty
+      assign c_books = t
+    endunless
+    unless c_books
+      assign hb = h | append: '-book'
+      assign t = collections[hb]
+      unless t == empty
+        assign c_books = t
+      endunless
+    endunless
+
+    assign hp = h | append: '-prints'
+    assign t = collections[hp]
+    unless t == empty
+      assign c_prints = t
+    endunless
+    unless c_prints
+      assign hp = h | append: '-print'
+      assign t = collections[hp]
+      unless t == empty
+        assign c_prints = t
+      endunless
+    endunless
+
+    assign hd = h | append: '-digital'
+    assign t = collections[hd]
+    unless t == empty
+      assign c_digital = t
+    endunless
+    unless c_digital
+      assign hd = h | append: '-digitals'
+      assign t = collections[hd]
+      unless t == empty
+        assign c_digital = t
+      endunless
+    endunless
+
+    assign hm = h | append: '-merch'
+    assign t = collections[hm]
+    unless t == empty
+      assign c_merch = t
+    endunless
   endif
 
   assign feat = collections[section.settings.featured_collection]
-  if feat == empty or feat.products.size == 0
-    if c_books and c_books.products.size > 0
+  if feat == empty
+    if c_books and c_books.all_products_count > 0
       assign feat = c_books
-    elsif c_prints and c_prints.products.size > 0
+    elsif c_prints and c_prints.all_products_count > 0
       assign feat = c_prints
     endif
   endif
@@ -81,17 +107,18 @@
 
   .hub-strip { padding-block: clamp(30px, 5vw, 56px); }
   .hub-strip .section-head h2 { font-size: clamp(20px, 3vw, 30px); }
+  .hub-empty { text-align: center; color: var(--muted); padding: 30px 0 60px; }
 </style>
 
-{%- capture chip_books -%}{%- if c_books != empty and c_books.products.size > 0 -%}<a class="format-chip" href="{{ c_books.url }}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M19 3v18"/></svg></span>Books<span class="n">{{ c_books.all_products_count }}</span></a>{%- endif -%}{%- endcapture -%}
-{%- capture chip_prints -%}{%- if c_prints != empty and c_prints.products.size > 0 -%}<a class="format-chip" href="{{ c_prints.url }}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="13" rx="2"/><path d="m8 12 3-3 5 5"/></svg></span>Prints<span class="n">{{ c_prints.all_products_count }}</span></a>{%- endif -%}{%- endcapture -%}
-{%- capture chip_digital -%}{%- if c_digital != empty and c_digital.products.size > 0 -%}<a class="format-chip" href="{{ c_digital.url }}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>Digital<span class="n">{{ c_digital.all_products_count }}</span></a>{%- endif -%}{%- endcapture -%}
-{%- capture chip_merch -%}{%- if c_merch != empty and c_merch.products.size > 0 -%}<a class="format-chip" href="{{ c_merch.url }}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 7 4 9l3 2v9h10v-9l3-2-2-2-4-2a3 3 0 0 1-6 0z"/></svg></span>Merch<span class="n">{{ c_merch.all_products_count }}</span></a>{%- endif -%}{%- endcapture -%}
+{%- capture chip_books -%}{%- if c_books and c_books.all_products_count > 0 -%}<a class="format-chip" href="{{ c_books.url }}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M19 3v18"/></svg></span>Books<span class="n">{{ c_books.all_products_count }}</span></a>{%- endif -%}{%- endcapture -%}
+{%- capture chip_prints -%}{%- if c_prints and c_prints.all_products_count > 0 -%}<a class="format-chip" href="{{ c_prints.url }}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="13" rx="2"/><path d="m8 12 3-3 5 5"/></svg></span>Prints<span class="n">{{ c_prints.all_products_count }}</span></a>{%- endif -%}{%- endcapture -%}
+{%- capture chip_digital -%}{%- if c_digital and c_digital.all_products_count > 0 -%}<a class="format-chip" href="{{ c_digital.url }}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>Digital<span class="n">{{ c_digital.all_products_count }}</span></a>{%- endif -%}{%- endcapture -%}
+{%- capture chip_merch -%}{%- if c_merch and c_merch.all_products_count > 0 -%}<a class="format-chip" href="{{ c_merch.url }}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 7 4 9l3 2v9h10v-9l3-2-2-2-4-2a3 3 0 0 1-6 0z"/></svg></span>Merch<span class="n">{{ c_merch.all_products_count }}</span></a>{%- endif -%}{%- endcapture -%}
 
 <section class="hub">
   {%- if section.settings.art_image != blank -%}
     <div class="hub-bg"><img src="{{ section.settings.art_image | image_url: width: 1800 }}" alt="" loading="eager"></div>
-  {%- elsif feat.products.first.featured_media != blank -%}
+  {%- elsif feat != empty and feat.products.first.featured_media != blank -%}
     <div class="hub-bg"><img src="{{ feat.products.first.featured_media | image_url: width: 1800 }}" alt="" loading="eager"></div>
   {%- endif -%}
   <div class="wrap hub-inner">
@@ -100,9 +127,7 @@
     {%- if section.settings.blurb != blank -%}<p class="blurb">{{ section.settings.blurb }}</p>{%- elsif page.content != blank -%}<div class="blurb rte">{{ page.content }}</div>{%- endif -%}
 
     <div class="hub-formats">
-      {%- if auto -%}
-        {{ chip_books }}{{ chip_prints }}{{ chip_digital }}{{ chip_merch }}
-      {%- endif -%}
+      {%- if auto -%}{{ chip_books }}{{ chip_prints }}{{ chip_digital }}{{ chip_merch }}{%- endif -%}
       {%- for block in section.blocks -%}
         {%- liquid
           assign cb = collections[block.settings.collection]
@@ -141,13 +166,15 @@
       {%- endfor -%}
     </div>
   </div></section>
+{%- else -%}
+  <p class="hub-empty">Nothing here yet — check back after the next drop.</p>
 {%- endif -%}
 
 {% schema %}
 {
   "name": "Title hub",
   "settings": [
-    { "type": "checkbox", "id": "auto_from_handle", "label": "Auto-detect formats from page handle", "default": true, "info": "Builds Books/Prints/Digital/Merch chips from the page handle (e.g. dead-sexy-1 → dead-sexy-1-books). Turn off to set them manually below." },
+    { "type": "checkbox", "id": "auto_from_handle", "label": "Auto-detect formats from page handle", "default": true, "info": "Looks up Books/Prints/Digital/Merch collections from the page handle (e.g. dead-sexy-1 → dead-sexy-1-books). Turn off to set them manually below." },
     { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "Pick your format" },
     { "type": "text", "id": "title", "label": "Title (defaults to page title)" },
     { "type": "textarea", "id": "blurb", "label": "Blurb (defaults to page content)" },
