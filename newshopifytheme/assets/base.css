@@ -10,16 +10,17 @@
 /* ---- Tokens (colours are injected from theme settings in
    layout/theme.liquid; these are safe fallbacks) ------------- */
 :root {
-  --ink:        #14110f;   /* page ground            */
-  --ink-1:      #1b1714;   /* raised surface         */
-  --ink-2:      #241f1b;   /* cards                  */
-  --hair:       #322b25;   /* hairline borders       */
-  --bone:       #ece6d9;   /* primary text           */
-  --muted:      #a49a8b;   /* secondary text         */
-  --faint:      #6f665b;   /* tertiary / meta        */
-  --red:        #ff2e43;   /* the one bold accent    */
-  --red-deep:   #cf1730;
-  --gold:       #e7b23c;   /* LTD / exclusive tier    */
+  --ink:        #10140d;   /* page ground (deep green-black, logo bg) */
+  --ink-1:      #171c15;   /* raised surface         */
+  --ink-2:      #20261b;   /* cards                  */
+  --hair:       #313629;   /* hairline borders       */
+  --bone:       #ece6d9;   /* primary text (logo cream) */
+  --muted:      #9aa094;   /* secondary text         */
+  --faint:      #697065;   /* tertiary / meta        */
+  --red:        #1c9270;   /* brand accent (logo jade green) — token name kept */
+  --red-deep:   #135f47;   /* darker green for hovers */
+  --gold:       #e3a93c;   /* co-accent / LTD tier (logo gold) */
+  --on-accent:  #0f120e;   /* dark text/icons on a filled green or gold */
   --good:       #4bbf7b;
 
   --page:  1320px;
@@ -125,7 +126,7 @@ button { font-family: inherit; cursor: pointer; }
   border: 1px solid transparent; transition: transform .12s ease, background .15s, color .15s, border-color .15s;
 }
 .btn:active { transform: translateY(1px); }
-.btn--primary { background: var(--red); color: #fff; }
+.btn--primary { background: var(--red); color: var(--on-accent); font-weight: 700; }
 .btn--primary:hover { background: var(--red-deep); }
 .btn--ghost { border-color: var(--hair); color: var(--bone); }
 .btn--ghost:hover { border-color: var(--bone); }
@@ -138,7 +139,7 @@ button { font-family: inherit; cursor: pointer; }
   text-transform: uppercase; font-weight: 700;
   padding: 3px 7px; border-radius: 3px; line-height: 1; white-space: nowrap;
 }
-.badge--new   { background: var(--red); color: #fff; }
+.badge--new   { background: var(--red); color: var(--on-accent); }
 .badge--ltd   { background: var(--gold); color: #1a1206; }
 .badge--sale  { background: transparent; color: var(--red); border: 1px solid var(--red); }
 .badge--sold  { background: var(--ink-2); color: var(--muted); border: 1px solid var(--hair); }
@@ -203,7 +204,7 @@ button { font-family: inherit; cursor: pointer; }
   background: transparent; color: var(--muted); transition: all .14s;
 }
 .chip:hover { border-color: var(--muted); color: var(--bone); }
-.chip[aria-pressed="true"], .chip.is-active { background: var(--red); border-color: var(--red); color: #fff; }
+.chip[aria-pressed="true"], .chip.is-active { background: var(--red); border-color: var(--red); color: var(--on-accent); font-weight: 700; }
 
 /* ---- Utility --------------------------------------------- */
 .visually-hidden {

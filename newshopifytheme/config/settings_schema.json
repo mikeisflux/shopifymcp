@@ -11,14 +11,14 @@
     "name": "Colours",
     "settings": [
       { "type": "header", "content": "Ground & surfaces" },
-      { "type": "color", "id": "color_bg", "label": "Page background", "default": "#14110f" },
-      { "type": "color", "id": "color_surface", "label": "Raised surface", "default": "#1b1714" },
-      { "type": "color", "id": "color_card", "label": "Card background", "default": "#241f1b" },
-      { "type": "color", "id": "color_hairline", "label": "Hairline / border", "default": "#322b25" },
+      { "type": "color", "id": "color_bg", "label": "Page background", "default": "#10140d" },
+      { "type": "color", "id": "color_surface", "label": "Raised surface", "default": "#171c15" },
+      { "type": "color", "id": "color_card", "label": "Card background", "default": "#20261b" },
+      { "type": "color", "id": "color_hairline", "label": "Hairline / border", "default": "#313629" },
       { "type": "color", "id": "color_text", "label": "Text", "default": "#ece6d9" },
       { "type": "header", "content": "Accents" },
-      { "type": "color", "id": "color_accent", "label": "Accent (comic red)", "default": "#ff2e43" },
-      { "type": "color", "id": "color_gold", "label": "Exclusive / LTD tier", "default": "#e7b23c" }
+      { "type": "color", "id": "color_accent", "label": "Accent (logo green)", "default": "#1c9270" },
+      { "type": "color", "id": "color_gold", "label": "Co-accent / LTD tier (logo gold)", "default": "#e3a93c" }
     ]
   },
   {

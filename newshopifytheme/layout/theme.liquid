@@ -17,7 +17,9 @@
 
     {{ content_for_header }}
 
+    {{ 'base.css' | asset_url | stylesheet_tag }}
     <style>
+      /* Merchant colour settings — loaded after base.css so they win */
       :root {
         --ink:    {{ settings.color_bg }};
         --ink-1:  {{ settings.color_surface }};
@@ -30,7 +32,6 @@
         --page:   {{ settings.page_width }}px;
       }
     </style>
-    {{ 'base.css' | asset_url | stylesheet_tag }}
 
     <script>document.documentElement.className = document.documentElement.className.replace('no-js','js');</script>
   </head>
