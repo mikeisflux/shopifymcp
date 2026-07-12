@@ -363,7 +363,10 @@ const UPDATE_VARIANTS = /* GraphQL */ `
     productVariantsBulkUpdate(productId: $productId, variants: $variants) {
       productVariants {
         id title sku price compareAtPrice inventoryPolicy
-        inventoryItem { tracked }
+        inventoryItem {
+          tracked requiresShipping
+          measurement { weight { value unit } }
+        }
       }
       userErrors { field message }
     }
@@ -536,8 +539,8 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
     name: "shopify_update_variant",
     title: "Update product variant",
     description:
-      "Update a single variant's price, compare-at price, SKU, inventory policy, or whether Shopify " +
-      "tracks its inventory quantity. Requires both the product id and the variant id.",
+      "Update a single variant's price, compare-at price, SKU, inventory policy, inventory tracking, " +
+      "weight, or whether it requires shipping. Requires both the product id and the variant id.",
     inputSchema: {
       productId: z.string().describe("Parent product id (numeric or GID)."),
       variantId: z.string().describe("Variant id (numeric or GID)."),
@@ -555,6 +558,18 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
           "Whether Shopify tracks this variant's inventory quantity. Set false to stop tracking " +
             "(sells regardless of stock); true to track. Requires the write_inventory scope.",
         ),
+      weight: z
+        .number()
+        .optional()
+        .describe("Variant weight for shipping. Provide weightUnit too (defaults to GRAMS)."),
+      weightUnit: z
+        .enum(["GRAMS", "KILOGRAMS", "OUNCES", "POUNDS"])
+        .optional()
+        .describe("Unit for `weight`. Defaults to GRAMS when weight is given."),
+      requiresShipping: z
+        .boolean()
+        .optional()
+        .describe("Whether this variant is a physical item that requires shipping."),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     handler: async (args, c) => {
@@ -563,10 +578,16 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
       if (args.compareAtPrice !== undefined) variant.compareAtPrice = args.compareAtPrice || null;
       if (args.inventoryPolicy !== undefined) variant.inventoryPolicy = args.inventoryPolicy;
 
-      // sku and tracked both live on the variant's inventoryItem.
+      // sku, tracked, weight, and requiresShipping all live on the inventoryItem.
       const inventoryItem: Record<string, unknown> = {};
       if (args.sku !== undefined) inventoryItem.sku = args.sku;
       if (args.tracked !== undefined) inventoryItem.tracked = args.tracked;
+      if (args.requiresShipping !== undefined) inventoryItem.requiresShipping = args.requiresShipping;
+      if (args.weight !== undefined) {
+        inventoryItem.measurement = {
+          weight: { value: args.weight, unit: args.weightUnit ?? "GRAMS" },
+        };
+      }
       if (Object.keys(inventoryItem).length > 0) variant.inventoryItem = inventoryItem;
 
       const res = await c.request<{
@@ -578,7 +599,11 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
             price: string;
             compareAtPrice: string | null;
             inventoryPolicy: string;
-            inventoryItem: { tracked: boolean } | null;
+            inventoryItem: {
+              tracked: boolean;
+              requiresShipping: boolean;
+              measurement: { weight: { value: number; unit: string } | null } | null;
+            } | null;
           }> | null;
           userErrors: Array<{ field: string[] | null; message: string }>;
         };
@@ -588,10 +613,14 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
       });
       assertNoUserErrors(res.data.productVariantsBulkUpdate.userErrors);
       const updated = res.data.productVariantsBulkUpdate.productVariants?.[0];
+      const weight = updated?.inventoryItem?.measurement?.weight;
       return {
         markdown: updated
           ? `Updated variant ${gidToId(updated.id)} (SKU ${updated.sku ?? "—"}): price ${updated.price}, ` +
-            `policy ${updated.inventoryPolicy}, tracked ${updated.inventoryItem?.tracked ?? "?"}.`
+            `policy ${updated.inventoryPolicy}, tracked ${updated.inventoryItem?.tracked ?? "?"}` +
+            (weight ? `, weight ${weight.value} ${weight.unit}` : "") +
+            (updated.inventoryItem ? `, requiresShipping ${updated.inventoryItem.requiresShipping}` : "") +
+            "."
           : "Variant updated.",
         structured: { variant: updated ? stripGids(updated) : null },
         cost: res.cost,
