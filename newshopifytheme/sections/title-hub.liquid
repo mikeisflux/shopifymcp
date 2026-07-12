@@ -19,51 +19,25 @@
   assign c_digital = false
   assign c_merch = false
 
+  # Same proven method the header's auto Merch/Art menus use: scan the store's
+  # collections and match this title by handle prefix, then bucket by format.
+  # Robust to page-handle / collection-handle drift and singular/plural tags.
   if auto and h != blank
-    assign hb = h | append: '-books'
-    assign t = collections[hb]
-    unless t == empty
-      assign c_books = t
-    endunless
-    unless c_books
-      assign hb = h | append: '-book'
-      assign t = collections[hb]
-      unless t == empty
-        assign c_books = t
-      endunless
-    endunless
-
-    assign hp = h | append: '-prints'
-    assign t = collections[hp]
-    unless t == empty
-      assign c_prints = t
-    endunless
-    unless c_prints
-      assign hp = h | append: '-print'
-      assign t = collections[hp]
-      unless t == empty
-        assign c_prints = t
-      endunless
-    endunless
-
-    assign hd = h | append: '-digital'
-    assign t = collections[hd]
-    unless t == empty
-      assign c_digital = t
-    endunless
-    unless c_digital
-      assign hd = h | append: '-digitals'
-      assign t = collections[hd]
-      unless t == empty
-        assign c_digital = t
-      endunless
-    endunless
-
-    assign hm = h | append: '-merch'
-    assign t = collections[hm]
-    unless t == empty
-      assign c_merch = t
-    endunless
+    assign hpx = h | append: '-'
+    for coll in collections
+      assign hd = coll.handle
+      if hd contains hpx
+        if hd contains '-book'
+          assign c_books = coll
+        elsif hd contains '-print'
+          assign c_prints = coll
+        elsif hd contains '-digital'
+          assign c_digital = coll
+        elsif hd contains '-merch'
+          assign c_merch = coll
+        endif
+      endif
+    endfor
   endif
 
   assign feat = collections[section.settings.featured_collection]
