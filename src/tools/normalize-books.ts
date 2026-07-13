@@ -37,6 +37,7 @@ const BOOK_STANDARD: Slot[] = [
   { suffix: "RM", title: "Raised Metal", price: "55.00" },
 ];
 const OPTION_NAME = "Cover";
+const DEFAULT_EXCLUDE_NAMES = ["LTD", "Exclusive", "Sketch", "Damaged", "Pin-Up"];
 // Longest-match first. Bare stem = Regular.
 const SUFFIX_ORDER = ["GITD", "RM", "F", "M"] as const;
 // SKUs that are not numbered covers — never merged or normalized.
@@ -233,12 +234,30 @@ function planCollection(
   products: RawProduct[],
   excludeAbovePrice: number | undefined,
   weights: Weights | undefined,
+  excludeNames: string[],
 ): { groups: GroupPlan[]; skips: Skip[] } {
   const skips: Skip[] = [];
+  const excludeTerms = excludeNames.map((t) => t.toLowerCase()).filter((t) => t.length > 0);
 
   // Derive each product's stem (from non-skippable, single-option variants).
   const byStem = new Map<string, RawProduct[]>();
   for (const p of products) {
+    // Name exclusion: leave special covers (LTD/Exclusive/Sketch/Damaged/Pin-Up,
+    // by title or option value) untouched so they don't get re-normalized.
+    if (excludeTerms.length > 0) {
+      const haystack = [
+        p.title,
+        ...p.options.flatMap((o) => o.optionValues.map((v) => v.name)),
+        ...p.variants.nodes.flatMap((v) => v.selectedOptions.map((s) => s.value)),
+      ]
+        .join(" | ")
+        .toLowerCase();
+      const hit = excludeTerms.find((t) => haystack.includes(t));
+      if (hit) {
+        skips.push({ id: p.id, title: p.title, reason: `excluded by name: contains "${hit}"` });
+        continue;
+      }
+    }
     // Price exclusion: leave premium/special products (a variant above the
     // threshold) completely untouched — never reprice or merge them.
     if (excludeAbovePrice != null) {
@@ -558,6 +577,14 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
             "not just newly-created. Omit to leave weights unchanged; omit individual keys to leave " +
             "those covers unchanged.",
         ),
+      excludeNames: z
+        .array(z.string())
+        .default(DEFAULT_EXCLUDE_NAMES)
+        .describe(
+          "Skip (leave untouched) any product whose title or an option value contains one of these " +
+            "(case-insensitive substring). Defaults to LTD/Exclusive/Sketch/Damaged/Pin-Up so special " +
+            "covers aren't normalized. Pass your own list to override; pass [] to disable.",
+        ),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     handler: async (args, c) => {
@@ -580,7 +607,7 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
         if (r.data.product) products.push(r.data.product);
       }
 
-      const { groups, skips } = planCollection(products, args.excludeAbovePrice, args.weights);
+      const { groups, skips } = planCollection(products, args.excludeAbovePrice, args.weights, args.excludeNames ?? DEFAULT_EXCLUDE_NAMES);
       const deletes = groups.flatMap((g) => g.merges.map((m) => m));
       const totalMoves = deletes.reduce((n, m) => n + m.levels.length, 0);
       const totalUnits = deletes.reduce((n, m) => n + m.total, 0);
