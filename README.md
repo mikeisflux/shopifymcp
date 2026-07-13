@@ -314,6 +314,16 @@ read_products,read_orders,read_customers,read_draft_orders,read_inventory,read_l
 read_products,read_orders,read_customers,read_draft_orders,read_inventory,read_locations,read_discounts,write_products,write_orders,write_customers,write_inventory,write_draft_orders,write_discounts
 ```
 
+**Additional scopes for the extended tools** (add only the ones whose tools you use):
+- Fulfillment (`shopify_fulfill_order`, `shopify_update_fulfillment_tracking`): `write_merchant_managed_fulfillment_orders` (and/or `write_assigned_fulfillment_orders`)
+- Content — pages/blogs/articles (`shopify_*_page/_blog/_article`): `read_content`, `write_content`
+- File upload (`shopify_upload_file`, `shopify_delete_files`): `write_files` (`read_files` for reads)
+- Gift cards (`shopify_create_gift_card`, `shopify_update_gift_card`, `shopify_deactivate_gift_card`): `read_gift_cards`, `write_gift_cards` (store must have gift cards enabled)
+- Navigation (`shopify_*_menu`): `read_online_store_navigation`, `write_online_store_navigation`
+- Publishing (`shopify_publish_resource`, `shopify_list_publications`): `read_publications`, `write_publications`
+- Shipping packages (`shopify_update_shipping_package`): `write_shipping`
+- Marketing consent (`shopify_update_customer_marketing_consent`): `write_customers` (already listed)
+
 > `shopify_tag_resource` needs the write scope for whichever resource you tag (`write_products`,
 > `write_orders`, `write_customers`).
 >
