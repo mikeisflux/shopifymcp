@@ -82,6 +82,7 @@ const GET_PRODUCT = /* GraphQL */ `
           media(first: 3) { nodes { id } }
           inventoryItem {
             id
+            measurement { weight { value unit } }
             inventoryLevels(first: 20) {
               nodes { location { id name } quantities(names: ["available"]) { name quantity } }
             }
@@ -174,7 +175,27 @@ interface RawVariant {
   price: string;
   selectedOptions: Array<{ name: string; value: string }>;
   media: { nodes: Array<{ id: string }> };
-  inventoryItem: { id: string; inventoryLevels: { nodes: Array<{ location: { id: string; name: string }; quantities: Array<{ name: string; quantity: number }> }> } } | null;
+  inventoryItem: {
+    id: string;
+    measurement: { weight: { value: number; unit: string } | null } | null;
+    inventoryLevels: { nodes: Array<{ location: { id: string; name: string }; quantities: Array<{ name: string; quantity: number }> }> };
+  } | null;
+}
+
+interface Weights { base?: number; F?: number; M?: number; GITD?: number; RM?: number }
+function weightForSuffix(weights: Weights | undefined, suffix: string): number | undefined {
+  if (!weights) return undefined;
+  const key = suffix === "" ? "base" : suffix;
+  return (weights as Record<string, number | undefined>)[key];
+}
+function weightInput(oz: number): Record<string, unknown> {
+  return { measurement: { weight: { value: oz, unit: "OUNCES" } } };
+}
+/** Current weight in ounces, or null if unset / a non-ounce unit. */
+function currentWeightOz(v: RawVariant): number | null {
+  const w = v.inventoryItem?.measurement?.weight;
+  if (!w || w.unit !== "OUNCES") return null;
+  return w.value;
 }
 interface RawProduct {
   id: string;
@@ -184,7 +205,7 @@ interface RawProduct {
   variants: { nodes: RawVariant[] };
 }
 
-interface Merge { siblingId: string; siblingTitle: string; suffix: string; title: string; price: string; levels: InvLevel[]; total: number }
+interface Merge { siblingId: string; siblingTitle: string; suffix: string; title: string; price: string; weightOz?: number; levels: InvLevel[]; total: number }
 interface GroupPlan {
   stem: string;
   primaryId: string;
@@ -192,8 +213,8 @@ interface GroupPlan {
   optionRename?: { from: string; to: string };
   valueRenames: Array<{ from: string; to: string }>;
   merges: Merge[];
-  creates: Array<{ suffix: string; title: string; price: string }>;
-  updates: Array<{ suffix: string; sku: string; setPrice: string; reprice?: { from: string; to: string } }>;
+  creates: Array<{ suffix: string; title: string; price: string; weightOz?: number }>;
+  updates: Array<{ suffix: string; sku: string; setPrice: string; reprice?: { from: string; to: string }; weightOz?: number; reweight?: { from: number | null; to: number } }>;
   reorder: string[];
   mediaId?: string;
 }
@@ -211,6 +232,7 @@ function levelsOf(v: RawVariant): InvLevel[] {
 function planCollection(
   products: RawProduct[],
   excludeAbovePrice: number | undefined,
+  weights: Weights | undefined,
 ): { groups: GroupPlan[]; skips: Skip[] } {
   const skips: Skip[] = [];
 
@@ -300,12 +322,18 @@ function planCollection(
     }
 
     for (const slot of BOOK_STANDARD) {
+      const w = weightForSuffix(weights, slot.suffix);
       const existing = primaryBySuffix.get(slot.suffix);
       if (existing) {
         const cur = existing.selectedOptions[0]?.value;
         if (cur && cur !== slot.title && valueId.has(cur)) plan.valueRenames.push({ from: cur, to: slot.title });
         const upd: GroupPlan["updates"][number] = { suffix: slot.suffix, sku: stem + slot.suffix, setPrice: slot.price };
         if (existing.price !== slot.price) upd.reprice = { from: existing.price, to: slot.price };
+        if (w !== undefined) {
+          upd.weightOz = w;
+          const curW = currentWeightOz(existing);
+          if (curW !== w) upd.reweight = { from: curW, to: w };
+        }
         plan.updates.push(upd);
         continue;
       }
@@ -319,13 +347,14 @@ function planCollection(
           suffix: slot.suffix,
           title: slot.title,
           price: slot.price,
+          weightOz: w,
           levels,
           total: levels.reduce((n, l) => n + l.available, 0),
         });
         continue;
       }
       // Regular must exist on primary; any other missing slot is a plain create.
-      if (slot.suffix !== "") plan.creates.push({ suffix: slot.suffix, title: slot.title, price: slot.price });
+      if (slot.suffix !== "") plan.creates.push({ suffix: slot.suffix, title: slot.title, price: slot.price, weightOz: w });
     }
 
     if (primary.media.nodes.length === 1) plan.mediaId = primary.media.nodes[0]!.id;
@@ -344,8 +373,12 @@ function renderGroup(g: GroupPlan): string {
     for (const lv of m.levels) l.push(`        - 📦 MOVE ${lv.available} units @ ${lv.locationName}`);
     l.push(`        - 🗑️ DELETE product ${gidToId(m.siblingId)} after stock verified (was ${m.total} units)`);
   }
-  for (const c of g.creates) l.push(`    - CREATE ${g.stem}${c.suffix} — "${c.title}" @ $${c.price} (0 stock)`);
-  for (const u of g.updates) l.push(`    - update ${u.sku}` + (u.reprice ? ` — ⚠️ REPRICE $${u.reprice.from} → $${u.reprice.to}` : " — price ok"));
+  for (const c of g.creates) l.push(`    - CREATE ${g.stem}${c.suffix} — "${c.title}" @ $${c.price} (0 stock${c.weightOz !== undefined ? `, ${c.weightOz} oz` : ""})`);
+  for (const u of g.updates) {
+    const parts = [u.reprice ? `⚠️ REPRICE $${u.reprice.from} → $${u.reprice.to}` : "price ok"];
+    if (u.reweight) parts.push(`weight ${u.reweight.from ?? "unset"} → ${u.reweight.to} oz`);
+    l.push(`    - update ${u.sku} — ${parts.join(", ")}`);
+  }
   return l.join("\n");
 }
 
@@ -384,7 +417,11 @@ async function executeGroup(c: ShopifyClient, g: GroupPlan): Promise<string[]> {
     const variants = g.creates.map((cr) => ({
       optionValues: [{ optionName: OPTION_NAME, name: cr.title }],
       price: cr.price,
-      inventoryItem: { sku: g.stem + cr.suffix, tracked: true },
+      inventoryItem: {
+        sku: g.stem + cr.suffix,
+        tracked: true,
+        ...(cr.weightOz !== undefined ? weightInput(cr.weightOz) : {}),
+      },
     }));
     const r = await c.request<{ productVariantsBulkCreate: { userErrors: Array<{ message: string }> } }>(VARIANTS_CREATE, { productId: g.primaryId, variants });
     collect(r.data.productVariantsBulkCreate.userErrors, "create");
@@ -396,7 +433,11 @@ async function executeGroup(c: ShopifyClient, g: GroupPlan): Promise<string[]> {
       productVariantsBulkCreate: { productVariants: Array<{ id: string; sku: string | null; inventoryItem: { id: string } | null }> | null; userErrors: Array<{ message: string }> };
     }>(VARIANTS_CREATE, {
       productId: g.primaryId,
-      variants: [{ optionValues: [{ optionName: OPTION_NAME, name: m.title }], price: m.price, inventoryItem: { sku: g.stem + m.suffix, tracked: true } }],
+      variants: [{
+        optionValues: [{ optionName: OPTION_NAME, name: m.title }],
+        price: m.price,
+        inventoryItem: { sku: g.stem + m.suffix, tracked: true, ...(m.weightOz !== undefined ? weightInput(m.weightOz) : {}) },
+      }],
     });
     if (created.data.productVariantsBulkCreate.userErrors.length) {
       collect(created.data.productVariantsBulkCreate.userErrors, `merge-create ${m.suffix}`);
@@ -442,7 +483,11 @@ async function executeGroup(c: ShopifyClient, g: GroupPlan): Promise<string[]> {
     for (const u of g.updates) {
       const id = idBySuffix.get(u.suffix);
       if (!id) continue;
-      variants.push({ id, price: u.setPrice, inventoryItem: { sku: u.sku } });
+      variants.push({
+        id,
+        price: u.setPrice,
+        inventoryItem: { sku: u.sku, ...(u.weightOz !== undefined ? weightInput(u.weightOz) : {}) },
+      });
     }
     if (variants.length) {
       const r = await c.request<{ productVariantsBulkUpdate: { userErrors: Array<{ message: string }> } }>(VARIANTS_UPDATE, { productId: g.primaryId, variants });
@@ -499,6 +544,20 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
           "Skip (leave untouched) any product that has a variant priced above this amount — e.g. 75 " +
             "excludes premium/special covers so they're never repriced to the standard set or merged.",
         ),
+      weights: z
+        .object({
+          base: z.number().positive().optional().describe("Regular cover weight (oz)."),
+          F: z.number().positive().optional().describe("Foil weight (oz)."),
+          M: z.number().positive().optional().describe("Metal weight (oz)."),
+          GITD: z.number().positive().optional().describe("Glow in the Dark weight (oz)."),
+          RM: z.number().positive().optional().describe("Raised Metal weight (oz)."),
+        })
+        .optional()
+        .describe(
+          "Per-cover weight in OUNCES, applied to EVERY variant the tool touches — existing ones too, " +
+            "not just newly-created. Omit to leave weights unchanged; omit individual keys to leave " +
+            "those covers unchanged.",
+        ),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     handler: async (args, c) => {
@@ -521,7 +580,7 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
         if (r.data.product) products.push(r.data.product);
       }
 
-      const { groups, skips } = planCollection(products, args.excludeAbovePrice);
+      const { groups, skips } = planCollection(products, args.excludeAbovePrice, args.weights);
       const deletes = groups.flatMap((g) => g.merges.map((m) => m));
       const totalMoves = deletes.reduce((n, m) => n + m.levels.length, 0);
       const totalUnits = deletes.reduce((n, m) => n + m.total, 0);
