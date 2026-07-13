@@ -30,6 +30,7 @@ import { registerContentReadTools, registerContentWriteTools } from "./tools/con
 import { registerDeleteTools } from "./tools/deletes.js";
 import { registerAdminExtraWriteTools } from "./tools/admin-extra.js";
 import { registerNormalizeTools } from "./tools/normalize.js";
+import { registerNormalizeBookTools } from "./tools/normalize-books.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
@@ -70,6 +71,7 @@ function buildServer(config: Config, client: ShopifyClient): McpServer {
     registerDeleteTools(server, client);
     registerAdminExtraWriteTools(server, client);
     registerNormalizeTools(server, client);
+    registerNormalizeBookTools(server, client);
   }
 
   return server;
