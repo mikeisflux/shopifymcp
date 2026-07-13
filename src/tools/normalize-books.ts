@@ -208,12 +208,28 @@ function levelsOf(v: RawVariant): InvLevel[] {
 }
 
 /** Builds the plan for the whole collection: groups products by stem and merges siblings. */
-function planCollection(products: RawProduct[]): { groups: GroupPlan[]; skips: Skip[] } {
+function planCollection(
+  products: RawProduct[],
+  excludeAbovePrice: number | undefined,
+): { groups: GroupPlan[]; skips: Skip[] } {
   const skips: Skip[] = [];
 
   // Derive each product's stem (from non-skippable, single-option variants).
   const byStem = new Map<string, RawProduct[]>();
   for (const p of products) {
+    // Price exclusion: leave premium/special products (a variant above the
+    // threshold) completely untouched — never reprice or merge them.
+    if (excludeAbovePrice != null) {
+      const over = p.variants.nodes.find((v) => Number.parseFloat(v.price) > excludeAbovePrice);
+      if (over) {
+        skips.push({
+          id: p.id,
+          title: p.title,
+          reason: `excluded: variant ${over.sku ?? "(no sku)"} price $${over.price} > $${excludeAbovePrice}`,
+        });
+        continue;
+      }
+    }
     if (p.options.length !== 1) {
       skips.push({ id: p.id, title: p.title, reason: `expected 1 option, found ${p.options.length}` });
       continue;
@@ -475,6 +491,14 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
         .boolean()
         .default(true)
         .describe("If true (default), report the full plan and change nothing. Set false to execute."),
+      excludeAbovePrice: z
+        .number()
+        .positive()
+        .optional()
+        .describe(
+          "Skip (leave untouched) any product that has a variant priced above this amount — e.g. 75 " +
+            "excludes premium/special covers so they're never repriced to the standard set or merged.",
+        ),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     handler: async (args, c) => {
@@ -497,7 +521,7 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
         if (r.data.product) products.push(r.data.product);
       }
 
-      const { groups, skips } = planCollection(products);
+      const { groups, skips } = planCollection(products, args.excludeAbovePrice);
       const deletes = groups.flatMap((g) => g.merges.map((m) => m));
       const totalMoves = deletes.reduce((n, m) => n + m.levels.length, 0);
       const totalUnits = deletes.reduce((n, m) => n + m.total, 0);
