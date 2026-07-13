@@ -4,11 +4,43 @@
  * location (write).
  */
 
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ShopifyClient, assertNoUserErrors } from "../shopify-client.js";
 import { registerTool, paginationShape } from "./shared.js";
 import { gidToId, toGid, markdownTable, detailLines, stripGids } from "../format.js";
+
+/**
+ * Reads the current quantity of `name` for an inventory item at a location.
+ * Needed as `changeFromQuantity` for the compare-and-swap inventory mutations
+ * (Shopify 2026-04+). Returns null if the item is not stocked at the location.
+ */
+const CURRENT_QTY = /* GraphQL */ `
+  query CurrentInventoryQty($inventoryItemId: ID!, $locationId: ID!, $names: [String!]!) {
+    inventoryItem(id: $inventoryItemId) {
+      inventoryLevel(locationId: $locationId) {
+        quantities(names: $names) { name quantity }
+      }
+    }
+  }
+`;
+
+async function currentQuantity(
+  c: ShopifyClient,
+  inventoryItemGid: string,
+  locationGid: string,
+  name: string,
+): Promise<number | null> {
+  const res = await c.request<{
+    inventoryItem: {
+      inventoryLevel: { quantities: Array<{ name: string; quantity: number }> } | null;
+    } | null;
+  }>(CURRENT_QTY, { inventoryItemId: inventoryItemGid, locationId: locationGid, names: [name] });
+  const level = res.data.inventoryItem?.inventoryLevel;
+  if (!level) return null;
+  return level.quantities.find((q) => q.name === name)?.quantity ?? 0;
+}
 
 // ─── Read tools ──────────────────────────────────────────────────────────────
 
@@ -165,9 +197,11 @@ const FILE_CREATE = /* GraphQL */ `
   }
 `;
 
+// 2026-04+: compare-and-swap uses changeFromQuantity, and the @idempotent
+// directive (with a key) is required on the mutation field.
 const INVENTORY_SET_QUANTITIES = /* GraphQL */ `
-  mutation InventorySetQuantities($input: InventorySetQuantitiesInput!) {
-    inventorySetQuantities(input: $input) {
+  mutation InventorySetQuantities($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
+    inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
       inventoryAdjustmentGroup {
         reason
         changes { name delta quantityAfterChange }
@@ -178,12 +212,12 @@ const INVENTORY_SET_QUANTITIES = /* GraphQL */ `
 `;
 
 const INVENTORY_ACTIVATE = /* GraphQL */ `
-  mutation InventoryActivate($inventoryItemId: ID!, $locationId: ID!, $available: Int) {
+  mutation InventoryActivate($inventoryItemId: ID!, $locationId: ID!, $available: Int, $idempotencyKey: String!) {
     inventoryActivate(
       inventoryItemId: $inventoryItemId
       locationId: $locationId
       available: $available
-    ) {
+    ) @idempotent(key: $idempotencyKey) {
       inventoryLevel {
         id
         location { id name }
@@ -251,8 +285,9 @@ export function registerStoreOpsWriteTools(server: McpServer, client: ShopifyCli
     title: "Set inventory quantity (absolute)",
     description:
       "Set the ABSOLUTE quantity of an inventory item at a location (not a delta). Use " +
-      "shopify_adjust_inventory for relative changes. Sets the 'available' or 'on_hand' quantity and " +
-      "ignores the compare-quantity check so the value is applied unconditionally.",
+      "shopify_adjust_inventory for relative changes. Reads the current 'available'/'on_hand' " +
+      "quantity for compare-and-swap and applies the new value. The item must already be stocked at " +
+      "the location (use shopify_activate_inventory first if not).",
     inputSchema: {
       inventoryItemId: z.string().describe("Inventory item id (numeric or GID)."),
       locationId: z.string().describe("Location id (numeric or GID)."),
@@ -268,6 +303,18 @@ export function registerStoreOpsWriteTools(server: McpServer, client: ShopifyCli
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     handler: async (args, c) => {
+      const inventoryItemGid = toGid("InventoryItem", args.inventoryItemId);
+      const locationGid = toGid("Location", args.locationId);
+
+      // Compare-and-swap needs the current value as changeFromQuantity (2026-04+).
+      const current = await currentQuantity(c, inventoryItemGid, locationGid, args.name);
+      if (current === null) {
+        throw new Error(
+          `Inventory item ${gidToId(args.inventoryItemId)} is not stocked at location ${gidToId(args.locationId)}. ` +
+            "Activate it there first with shopify_activate_inventory.",
+        );
+      }
+
       const res = await c.request<{
         inventorySetQuantities: {
           inventoryAdjustmentGroup: {
@@ -280,15 +327,16 @@ export function registerStoreOpsWriteTools(server: McpServer, client: ShopifyCli
         input: {
           name: args.name,
           reason: args.reason,
-          ignoreCompareQuantity: true,
           quantities: [
             {
-              inventoryItemId: toGid("InventoryItem", args.inventoryItemId),
-              locationId: toGid("Location", args.locationId),
+              inventoryItemId: inventoryItemGid,
+              locationId: locationGid,
               quantity: args.quantity,
+              changeFromQuantity: current,
             },
           ],
         },
+        idempotencyKey: randomUUID(),
       });
 
       assertNoUserErrors(res.data.inventorySetQuantities.userErrors);
@@ -338,6 +386,7 @@ export function registerStoreOpsWriteTools(server: McpServer, client: ShopifyCli
         inventoryItemId: toGid("InventoryItem", args.inventoryItemId),
         locationId: toGid("Location", args.locationId),
         available: args.available ?? null,
+        idempotencyKey: randomUUID(),
       });
 
       assertNoUserErrors(res.data.inventoryActivate.userErrors);

@@ -115,7 +115,7 @@ cp .env.example .env
 | Variable | Required | Notes |
 |---|---|---|
 | `SHOPIFY_STORE_DOMAIN` | ✅ | `yourstore.myshopify.com` (no protocol, no path). |
-| `SHOPIFY_API_VERSION` | ✅ | Pin the latest **stable** version, e.g. `2026-04`. See the [API version docs](https://shopify.dev/docs/api/admin-graphql). |
+| `SHOPIFY_API_VERSION` | ✅ | Pin the latest **stable** version, e.g. `2026-07`. See the [API version docs](https://shopify.dev/docs/api/admin-graphql). |
 | `SHOPIFY_CLIENT_ID` + `SHOPIFY_CLIENT_SECRET` | ✅ (method 1) | From your Dev Dashboard app. The server auto-fetches/refreshes the access token. |
 | `SHOPIFY_ACCESS_TOKEN` | ✅ (method 2) | A pre-2026 `shpat_…` token. Use **instead of** client id/secret. |
 | `MCP_PATH_SECRET` | ✅ | 32+ random chars. Generate with `openssl rand -hex 24`. |

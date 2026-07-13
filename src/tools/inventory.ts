@@ -2,6 +2,7 @@
  * Inventory tools: get levels by SKU or inventory item (read); adjust (write).
  */
 
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ShopifyClient, assertNoUserErrors } from "../shopify-client.js";
@@ -45,14 +46,26 @@ const INVENTORY_BY_ID = /* GraphQL */ `
   }
 `;
 
+// 2026-04+: the @idempotent directive (with a key) is required, and each change
+// must carry changeFromQuantity (compare-and-swap).
 const ADJUST_INVENTORY = /* GraphQL */ `
-  mutation AdjustInventory($input: InventoryAdjustQuantitiesInput!) {
-    inventoryAdjustQuantities(input: $input) {
+  mutation AdjustInventory($input: InventoryAdjustQuantitiesInput!, $idempotencyKey: String!) {
+    inventoryAdjustQuantities(input: $input) @idempotent(key: $idempotencyKey) {
       inventoryAdjustmentGroup {
         reason
         changes { name delta quantityAfterChange }
       }
       userErrors { field message }
+    }
+  }
+`;
+
+const CURRENT_AVAILABLE = /* GraphQL */ `
+  query CurrentAvailable($inventoryItemId: ID!, $locationId: ID!) {
+    inventoryItem(id: $inventoryItemId) {
+      inventoryLevel(locationId: $locationId) {
+        quantities(names: ["available"]) { name quantity }
+      }
     }
   }
 `;
@@ -327,6 +340,24 @@ export function registerInventoryWriteTools(server: McpServer, client: ShopifyCl
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     handler: async (args, c) => {
+      const inventoryItemGid = toGid("InventoryItem", args.inventoryItemId);
+      const locationGid = toGid("Location", args.locationId);
+
+      // Compare-and-swap needs the current available quantity (2026-04+).
+      const cur = await c.request<{
+        inventoryItem: {
+          inventoryLevel: { quantities: Array<{ name: string; quantity: number }> } | null;
+        } | null;
+      }>(CURRENT_AVAILABLE, { inventoryItemId: inventoryItemGid, locationId: locationGid });
+      const level = cur.data.inventoryItem?.inventoryLevel;
+      if (!level) {
+        throw new Error(
+          `Inventory item ${gidToId(args.inventoryItemId)} is not stocked at location ${gidToId(args.locationId)}. ` +
+            "Activate it there first with shopify_activate_inventory.",
+        );
+      }
+      const changeFromQuantity = level.quantities.find((q) => q.name === "available")?.quantity ?? 0;
+
       const res = await c.request<{
         inventoryAdjustQuantities: {
           inventoryAdjustmentGroup: {
@@ -342,11 +373,13 @@ export function registerInventoryWriteTools(server: McpServer, client: ShopifyCl
           changes: [
             {
               delta: args.delta,
-              inventoryItemId: toGid("InventoryItem", args.inventoryItemId),
-              locationId: toGid("Location", args.locationId),
+              inventoryItemId: inventoryItemGid,
+              locationId: locationGid,
+              changeFromQuantity,
             },
           ],
         },
+        idempotencyKey: randomUUID(),
       });
 
       assertNoUserErrors(res.data.inventoryAdjustQuantities.userErrors);
