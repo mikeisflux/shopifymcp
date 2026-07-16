@@ -278,6 +278,7 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_delete_product_media` | Remove media from a product by media id. |
 | `shopify_set_metafield` | Set/overwrite a metafield on a product or variant. |
 | `shopify_set_inventory_tracking` | **Bulk:** turn inventory tracking on/off for every variant of a product, or every product in a collection, in one call. Iterates + paginates server-side. |
+| `shopify_bulk_set_inventory_quantity` | **Bulk:** set the absolute available/on-hand quantity at a location for every variant of a product or collection. Reads current for compare-and-swap; auto-activates items not yet stocked there. |
 | `shopify_adjust_inventory` | Adjust available quantity at a location by a signed delta. |
 | `shopify_create_draft_order` | Line items by variant id or SKU, customer, shipping, discount. |
 | `shopify_complete_draft_order` | Turn a draft order into a real order. |

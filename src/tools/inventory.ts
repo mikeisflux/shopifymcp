@@ -181,6 +181,78 @@ const SET_TRACKED = /* GraphQL */ `
   }
 `;
 
+// Fetches each variant's inventory item id and its current level at a location.
+const PRODUCT_VARIANT_INV = /* GraphQL */ `
+  query ProductVariantInv($id: ID!, $first: Int!, $after: String, $loc: ID!, $names: [String!]!) {
+    product(id: $id) {
+      variants(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          inventoryItem {
+            id
+            inventoryLevel(locationId: $loc) { quantities(names: $names) { name quantity } }
+          }
+        }
+      }
+    }
+  }
+`;
+
+// 2026-04+: compare-and-swap (changeFromQuantity) + required @idempotent directive.
+const BULK_SET_QUANTITIES = /* GraphQL */ `
+  mutation BulkSetQuantities($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
+    inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
+      userErrors { field message code }
+    }
+  }
+`;
+
+const BULK_ACTIVATE = /* GraphQL */ `
+  mutation BulkInventoryActivate($inventoryItemId: ID!, $locationId: ID!, $available: Int, $idempotencyKey: String!) {
+    inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId, available: $available) @idempotent(key: $idempotencyKey) {
+      userErrors { field message }
+    }
+  }
+`;
+
+interface VariantInv { itemId: string; current: number | null }
+
+/** Collects every variant's inventory item + current quantity at a location for a product. */
+async function collectVariantInv(
+  c: ShopifyClient,
+  productGid: string,
+  locationGid: string,
+  name: string,
+): Promise<VariantInv[]> {
+  const out: VariantInv[] = [];
+  let after: string | null = null;
+  do {
+    const res: {
+      data: {
+        product: {
+          variants: {
+            pageInfo: { hasNextPage: boolean; endCursor: string | null };
+            nodes: Array<{
+              inventoryItem: { id: string; inventoryLevel: { quantities: Array<{ name: string; quantity: number }> } | null } | null;
+            }>;
+          };
+        } | null;
+      };
+    } = await c.request(PRODUCT_VARIANT_INV, { id: productGid, first: 100, after, loc: locationGid, names: [name] });
+    const conn = res.data.product?.variants;
+    if (!conn) break;
+    for (const v of conn.nodes) {
+      if (!v.inventoryItem) continue;
+      const lvl = v.inventoryItem.inventoryLevel;
+      const current = lvl ? lvl.quantities.find((q) => q.name === name)?.quantity ?? 0 : null;
+      out.push({ itemId: v.inventoryItem.id, current });
+    }
+    after = conn.pageInfo.hasNextPage ? conn.pageInfo.endCursor : null;
+  } while (after);
+  return out;
+}
+
 /** Collects every product GID for the given target (single product or whole collection). */
 async function collectProductGids(
   c: ShopifyClient,
@@ -235,6 +307,109 @@ async function collectVariantGids(c: ShopifyClient, productGid: string): Promise
 }
 
 export function registerInventoryWriteTools(server: McpServer, client: ShopifyClient): void {
+  registerTool(server, client, {
+    name: "shopify_bulk_set_inventory_quantity",
+    title: "Set inventory quantity (bulk)",
+    description:
+      "Set the ABSOLUTE quantity at a location for every variant of a single product OR every product " +
+      "in a collection, in one call. The server iterates products/variants (handling pagination), " +
+      "reads each item's current quantity for compare-and-swap, and batches inventorySetQuantities " +
+      "calls. Items not yet stocked at the location are activated automatically (never fails on those). " +
+      "Provide exactly one of productId or collectionId. Returns counts of variants set/activated.",
+    inputSchema: {
+      productId: z.string().optional().describe("Set quantity for all variants of this single product (numeric or GID)."),
+      collectionId: z.string().optional().describe("Set quantity for all variants of every product in this collection (numeric or GID)."),
+      locationId: z.string().describe("Location id to set the quantity at (numeric or GID)."),
+      quantity: z.number().int().describe("The absolute quantity to set on every variant."),
+      name: z
+        .enum(["available", "on_hand"])
+        .default("available")
+        .describe("Which quantity to set. Default 'available'."),
+      reason: z
+        .string()
+        .default("correction")
+        .describe('Adjustment reason, e.g. "correction", "cycle_count_available". Default "correction".'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      if ((!args.productId && !args.collectionId) || (args.productId && args.collectionId)) {
+        throw new Error("Provide exactly one of productId or collectionId.");
+      }
+      const locationGid = toGid("Location", args.locationId);
+      const productGids = await collectProductGids(c, args);
+
+      let set = 0;
+      let activated = 0;
+      let productsProcessed = 0;
+      const errors: string[] = [];
+
+      for (const productGid of productGids) {
+        const items = await collectVariantInv(c, productGid, locationGid, args.name);
+        const setBatch: Array<Record<string, unknown>> = [];
+
+        for (const it of items) {
+          if (it.current === null) {
+            // Not stocked at this location yet — activate it.
+            if (args.name === "available") {
+              // Activate with the target available quantity in one call.
+              const r = await c.request<{ inventoryActivate: { userErrors: Array<{ message: string }> } }>(
+                BULK_ACTIVATE,
+                { inventoryItemId: it.itemId, locationId: locationGid, available: args.quantity, idempotencyKey: randomUUID() },
+              );
+              if (r.data.inventoryActivate.userErrors.length) errors.push(`${gidToId(it.itemId)}: ${r.data.inventoryActivate.userErrors.map((e) => e.message).join("; ")}`);
+              else activated++;
+            } else {
+              // on_hand: create the level (available 0), then set on_hand below.
+              const r = await c.request<{ inventoryActivate: { userErrors: Array<{ message: string }> } }>(
+                BULK_ACTIVATE,
+                { inventoryItemId: it.itemId, locationId: locationGid, available: 0, idempotencyKey: randomUUID() },
+              );
+              if (r.data.inventoryActivate.userErrors.length) { errors.push(`${gidToId(it.itemId)}: ${r.data.inventoryActivate.userErrors.map((e) => e.message).join("; ")}`); continue; }
+              activated++;
+              setBatch.push({ inventoryItemId: it.itemId, locationId: locationGid, quantity: args.quantity, changeFromQuantity: 0 });
+            }
+          } else {
+            setBatch.push({ inventoryItemId: it.itemId, locationId: locationGid, quantity: args.quantity, changeFromQuantity: it.current });
+          }
+        }
+
+        // Batch the compare-and-swap sets (chunked to stay within limits).
+        for (let i = 0; i < setBatch.length; i += 100) {
+          const chunk = setBatch.slice(i, i + 100);
+          const r = await c.request<{ inventorySetQuantities: { userErrors: Array<{ message: string }> } }>(
+            BULK_SET_QUANTITIES,
+            { input: { name: args.name, reason: args.reason, quantities: chunk }, idempotencyKey: randomUUID() },
+          );
+          const ue = r.data.inventorySetQuantities.userErrors;
+          if (ue.length) errors.push(`${gidToId(productGid)}: ${ue.map((e) => e.message).join("; ")}`);
+          else set += chunk.length;
+        }
+        productsProcessed++;
+      }
+
+      const scope = args.collectionId ? `collection ${gidToId(args.collectionId)}` : `product ${gidToId(args.productId!)}`;
+      const errBlock = errors.length
+        ? `\n\n**${errors.length} error(s):**\n` + errors.slice(0, 20).map((e) => `- ${e}`).join("\n")
+        : "";
+      return {
+        markdown:
+          `Set ${args.name} = ${args.quantity} on ${set} variant(s) (activated ${activated} previously-unstocked) ` +
+          `across ${productsProcessed} product(s) in ${scope} at location ${gidToId(args.locationId)}.` + errBlock,
+        structured: {
+          name: args.name,
+          quantity: args.quantity,
+          locationId: gidToId(args.locationId),
+          productsProcessed,
+          variantsSet: set,
+          activated,
+          errorCount: errors.length,
+          errors: errors.slice(0, 50),
+        },
+        cost: undefined,
+      };
+    },
+  });
+
   registerTool(server, client, {
     name: "shopify_set_inventory_tracking",
     title: "Set inventory tracking (bulk)",
