@@ -30,12 +30,19 @@ interface Slot {
   price: string;
 }
 const BOOK_STANDARD: Slot[] = [
-  { suffix: "", title: "Regular", price: "15.00" },
-  { suffix: "F", title: "Foil", price: "35.00" },
-  { suffix: "M", title: "Metal", price: "55.00" },
-  { suffix: "GITD", title: "Glow in the Dark", price: "55.00" },
-  { suffix: "RM", title: "Raised Metal", price: "55.00" },
+  { suffix: "", title: "Regular", price: "25.00" },
+  { suffix: "F", title: "Foil", price: "45.00" },
+  { suffix: "M", title: "Metal", price: "65.00" },
+  { suffix: "GITD", title: "Glow in the Dark", price: "75.00" },
+  { suffix: "RM", title: "Raised Metal", price: "65.00" },
 ];
+type BookPrices = { base?: number; F?: number; M?: number; GITD?: number; RM?: number };
+/** Resolves a slot's target price: override from `prices` (dollars) or the baked-in default. */
+function priceFor(slot: Slot, prices: BookPrices | undefined): string {
+  const key = slot.suffix === "" ? "base" : slot.suffix;
+  const o = prices?.[key as keyof BookPrices];
+  return o !== undefined ? o.toFixed(2) : slot.price;
+}
 const OPTION_NAME = "Cover";
 const DEFAULT_EXCLUDE_NAMES = ["LTD", "Exclusive", "Sketch", "Damaged", "Pin-Up"];
 // Longest-match first. Bare stem = Regular.
@@ -235,6 +242,7 @@ function planCollection(
   excludeAbovePrice: number | undefined,
   weights: Weights | undefined,
   excludeNames: string[],
+  prices: BookPrices | undefined,
 ): { groups: GroupPlan[]; skips: Skip[] } {
   const skips: Skip[] = [];
   const excludeTerms = excludeNames.map((t) => t.toLowerCase()).filter((t) => t.length > 0);
@@ -342,12 +350,13 @@ function planCollection(
 
     for (const slot of BOOK_STANDARD) {
       const w = weightForSuffix(weights, slot.suffix);
+      const price = priceFor(slot, prices);
       const existing = primaryBySuffix.get(slot.suffix);
       if (existing) {
         const cur = existing.selectedOptions[0]?.value;
         if (cur && cur !== slot.title && valueId.has(cur)) plan.valueRenames.push({ from: cur, to: slot.title });
-        const upd: GroupPlan["updates"][number] = { suffix: slot.suffix, sku: stem + slot.suffix, setPrice: slot.price };
-        if (existing.price !== slot.price) upd.reprice = { from: existing.price, to: slot.price };
+        const upd: GroupPlan["updates"][number] = { suffix: slot.suffix, sku: stem + slot.suffix, setPrice: price };
+        if (existing.price !== price) upd.reprice = { from: existing.price, to: price };
         if (w !== undefined) {
           upd.weightOz = w;
           const curW = currentWeightOz(existing);
@@ -365,7 +374,7 @@ function planCollection(
           siblingTitle: sib.title,
           suffix: slot.suffix,
           title: slot.title,
-          price: slot.price,
+          price,
           weightOz: w,
           levels,
           total: levels.reduce((n, l) => n + l.available, 0),
@@ -373,7 +382,7 @@ function planCollection(
         continue;
       }
       // Regular must exist on primary; any other missing slot is a plain create.
-      if (slot.suffix !== "") plan.creates.push({ suffix: slot.suffix, title: slot.title, price: slot.price, weightOz: w });
+      if (slot.suffix !== "") plan.creates.push({ suffix: slot.suffix, title: slot.title, price, weightOz: w });
     }
 
     if (primary.media.nodes.length === 1) plan.mediaId = primary.media.nodes[0]!.id;
@@ -585,6 +594,16 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
             "(case-insensitive substring). Defaults to LTD/Exclusive/Sketch/Damaged/Pin-Up so special " +
             "covers aren't normalized. Pass your own list to override; pass [] to disable.",
         ),
+      prices: z
+        .object({
+          base: z.number().positive().optional(),
+          F: z.number().positive().optional(),
+          M: z.number().positive().optional(),
+          GITD: z.number().positive().optional(),
+          RM: z.number().positive().optional(),
+        })
+        .optional()
+        .describe("Override the standard cover prices (dollars). Omitted keys use the built-in defaults (Regular 25 / Foil 45 / Metal 65 / GITD 75 / RM 65)."),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     handler: async (args, c) => {
@@ -607,7 +626,7 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
         if (r.data.product) products.push(r.data.product);
       }
 
-      const { groups, skips } = planCollection(products, args.excludeAbovePrice, args.weights, args.excludeNames ?? DEFAULT_EXCLUDE_NAMES);
+      const { groups, skips } = planCollection(products, args.excludeAbovePrice, args.weights, args.excludeNames ?? DEFAULT_EXCLUDE_NAMES, args.prices);
       const deletes = groups.flatMap((g) => g.merges.map((m) => m));
       const totalMoves = deletes.reduce((n, m) => n + m.levels.length, 0);
       const totalUnits = deletes.reduce((n, m) => n + m.total, 0);

@@ -28,10 +28,10 @@ interface StandardSlot {
 }
 
 const STANDARD: StandardSlot[] = [
-  { suffix: "P", title: "11x17 Art Print", price: "20.00", weightOz: 1.2 },
-  { suffix: "FP", title: "11x17 Foil Art Print", price: "30.00", weightOz: 1.2 },
-  { suffix: "MP", title: "11x17 Metal Art Print", price: "45.00", weightOz: 14 },
-  { suffix: "MTC", title: "Metal Trading Card", price: "10.00", weightOz: 1.2 },
+  { suffix: "P", title: "11x17 Art Print", price: "30.00", weightOz: 1.2 },
+  { suffix: "FP", title: "11x17 Foil Art Print", price: "40.00", weightOz: 1.2 },
+  { suffix: "MP", title: "11x17 Metal Art Print", price: "55.00", weightOz: 14 },
+  { suffix: "MTC", title: "Metal Trading Card", price: "20.00", weightOz: 1.2 },
 ];
 const OPTION_NAME = "Style";
 // Longest-match first so MTC/MAG/MP/FP are stripped before the bare P.
@@ -149,7 +149,14 @@ interface Plan {
 }
 
 /** Builds the normalization plan for one product (pure — no mutations). */
-function planProduct(p: RawProduct): Plan {
+type PrintPrices = { P?: number; FP?: number; MP?: number; MTC?: number };
+/** Resolves a slot's target price: override from `prices` (dollars) or the baked-in default. */
+function priceFor(slot: StandardSlot, prices: PrintPrices | undefined): string {
+  const o = prices?.[slot.suffix];
+  return o !== undefined ? o.toFixed(2) : slot.price;
+}
+
+function planProduct(p: RawProduct, prices: PrintPrices | undefined): Plan {
   const plan: Plan = {
     productId: p.id,
     title: p.title,
@@ -200,17 +207,18 @@ function planProduct(p: RawProduct): Plan {
 
   for (const slot of STANDARD) {
     const targetSku = stem + slot.suffix;
+    const price = priceFor(slot, prices);
     const existing = bySuffix.get(slot.suffix);
     if (existing) {
       const currentValue = existing.selectedOptions[0]?.value;
       if (currentValue && currentValue !== slot.title && valueId.has(currentValue)) {
         plan.valueRenames.push({ from: currentValue, to: slot.title });
       }
-      const upd: Plan["updates"][number] = { sku: targetSku, setPrice: slot.price };
-      if (existing.price !== slot.price) upd.reprice = { from: existing.price, to: slot.price };
+      const upd: Plan["updates"][number] = { sku: targetSku, setPrice: price };
+      if (existing.price !== price) upd.reprice = { from: existing.price, to: price };
       plan.updates.push(upd);
     } else {
-      plan.creates.push({ sku: targetSku, title: slot.title, price: slot.price });
+      plan.creates.push({ sku: targetSku, title: slot.title, price });
     }
   }
 
@@ -378,6 +386,15 @@ export function registerNormalizeTools(server: McpServer, client: ShopifyClient)
         .boolean()
         .default(true)
         .describe("If true (default), only report the plan and change nothing. Set false to execute."),
+      prices: z
+        .object({
+          P: z.number().positive().optional(),
+          FP: z.number().positive().optional(),
+          MP: z.number().positive().optional(),
+          MTC: z.number().positive().optional(),
+        })
+        .optional()
+        .describe("Override the standard print prices (dollars) per suffix. Omitted suffixes use the built-in defaults (P 30 / FP 40 / MP 55 / MTC 20)."),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     handler: async (args, c) => {
@@ -420,7 +437,7 @@ export function registerNormalizeTools(server: McpServer, client: ShopifyClient)
           plans.push({ productId: gid, title: "(not found)", skip: "product not found", valueRenames: [], creates: [], updates: [], reorder: [], leaves: [] });
           continue;
         }
-        plans.push(planProduct(res.data.product));
+        plans.push(planProduct(res.data.product, args.prices));
       }
 
       const actionable = plans.filter((p) => !p.skip);
