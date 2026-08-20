@@ -267,6 +267,9 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_edit_order` | Add variant / custom line items to an existing order (wraps the begin→add→commit flow). `dryRun` shows the recalculated total before committing. |
 | `shopify_create_return` | Open a return against fulfilled line items (by fulfillmentLineItemId, variantId, or SKU). `dryRun` echoes the resolved lines. |
 | `shopify_issue_store_credit` | Credit a customer's store-credit account. `dryRun` shows current → resulting balance. |
+| `shopify_list_themes` / `shopify_get_theme_files` | List themes with role (MAIN = live) and read theme file contents. |
+| `shopify_edit_theme_files` / `shopify_delete_theme_files` | Create/update/delete theme files (Liquid, JSON, assets). Editing the **live** theme requires `allowLiveTheme:true`; `dryRun` defaults on. Needs `write_themes` + a Shopify theme-edit exemption. |
+| `shopify_publish_theme` / `shopify_delete_theme` | Make a theme live (shows what it replaces), or delete a non-live theme. `dryRun` defaults on. |
 
 ### Write tools (only when `ENABLE_WRITES=true`)
 

@@ -35,6 +35,7 @@ import { registerHandleTools } from "./tools/handles.js";
 import { registerPricingTools } from "./tools/pricing.js";
 import { registerManagementReadTools, registerManagementWriteTools } from "./tools/management.js";
 import { registerAdvancedOrderTools } from "./tools/orders-advanced.js";
+import { registerThemeReadTools, registerThemeWriteTools } from "./tools/themes.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
@@ -61,6 +62,7 @@ function buildServer(config: Config, client: ShopifyClient): McpServer {
   registerCommerceExtraReadTools(server, client);
   registerContentReadTools(server, client);
   registerManagementReadTools(server, client);
+  registerThemeReadTools(server, client);
 
   // Write tools — only when ENABLE_WRITES=true.
   if (config.enableWrites) {
@@ -81,6 +83,7 @@ function buildServer(config: Config, client: ShopifyClient): McpServer {
     registerPricingTools(server, client);
     registerManagementWriteTools(server, client);
     registerAdvancedOrderTools(server, client);
+    registerThemeWriteTools(server, client);
   }
 
   return server;
