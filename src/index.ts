@@ -33,6 +33,7 @@ import { registerNormalizeTools } from "./tools/normalize.js";
 import { registerNormalizeBookTools } from "./tools/normalize-books.js";
 import { registerHandleTools } from "./tools/handles.js";
 import { registerPricingTools } from "./tools/pricing.js";
+import { registerManagementReadTools, registerManagementWriteTools } from "./tools/management.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
@@ -58,6 +59,7 @@ function buildServer(config: Config, client: ShopifyClient): McpServer {
   registerStoreOpsReadTools(server, client);
   registerCommerceExtraReadTools(server, client);
   registerContentReadTools(server, client);
+  registerManagementReadTools(server, client);
 
   // Write tools — only when ENABLE_WRITES=true.
   if (config.enableWrites) {
@@ -76,6 +78,7 @@ function buildServer(config: Config, client: ShopifyClient): McpServer {
     registerNormalizeBookTools(server, client);
     registerHandleTools(server, client);
     registerPricingTools(server, client);
+    registerManagementWriteTools(server, client);
   }
 
   return server;

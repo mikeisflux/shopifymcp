@@ -259,6 +259,11 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_list_menus` | List navigation menus with their full item trees (up to 3 levels). Needs `read_online_store_navigation`. |
 | `shopify_graphql_query` | Escape hatch: run an arbitrary **read-only** GraphQL query. Rejects any string containing a `mutation`. |
 | `shopify_graphql_mutation` | **Write escape hatch:** run an arbitrary Admin GraphQL **mutation**. Rejects read queries, requires a `userErrors` selection and surfaces non-empty `userErrors` as an error, rejects bare numeric IDs (needs GIDs). `dryRun` defaults on. |
+| `shopify_list_metaobjects` / `shopify_get_metaobject` / `shopify_list_metaobject_definitions` | Read metaobject entries (by type, or one by id/handle) and their definitions/schemas. |
+| `shopify_create_metaobject` / `shopify_update_metaobject` / `shopify_delete_metaobject` | Full CRUD for metaobject entries (custom content records), with optional publish status. |
+| `shopify_bulk_set_product_status` | **Bulk:** set ACTIVE/DRAFT/ARCHIVED across productIds, a collection, or a productType in one call. `dryRun` defaults on. |
+| `shopify_get_collection` / `shopify_reorder_collection_products` / `shopify_set_collection_image` | Read one collection's detail (incl. smart rules), reorder products in a manual collection, and set/clear its image. Complements the existing create/update/add/remove/delete collection tools. |
+| `shopify_list_url_redirects` / `shopify_create_url_redirect` / `shopify_delete_url_redirect` | Manage storefront URL redirects (e.g. after a handle change so old links don't 404). |
 
 ### Write tools (only when `ENABLE_WRITES=true`)
 
