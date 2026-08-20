@@ -337,6 +337,74 @@ function assertReadOnly(query: string): void {
   }
 }
 
+/** Ensures the document is a mutation (not a read). Returns the operation name. */
+function assertMutationDoc(doc: string): string {
+  const stripped = doc.replace(/^(?:\s*#[^\n]*\n)*\s*/, "");
+  if (/^\s*(?:query\b|subscription\b|\{)/i.test(stripped)) {
+    throw new ShopifyError(
+      "shopify_graphql_mutation only runs mutations, and this looks like a read query — use shopify_graphql_query instead.",
+    );
+  }
+  if (!/^\s*mutation\b/i.test(stripped)) {
+    throw new ShopifyError(
+      "No `mutation` operation found. Wrap your write as `mutation Name($x: T!) { ... }`, or use shopify_graphql_query for reads.",
+    );
+  }
+  const m = stripped.match(/^\s*mutation\s+([A-Za-z_]\w*)/);
+  return m ? m[1]! : "(anonymous)";
+}
+
+/** Rejects a mutation that doesn't select userErrors, so a silent failure can't slip through. */
+function requireUserErrorsSelection(doc: string): void {
+  if (!/\buserErrors\b/.test(doc)) {
+    throw new ShopifyError(
+      "The mutation must select `userErrors { field message }` so failures aren't silently dropped " +
+        "(Shopify returns them with HTTP 200). Add it and retry.",
+    );
+  }
+}
+
+/** Finds bare numeric IDs under id-like variable keys; the write API rejects these (needs GIDs). */
+function findBareIds(variables: Record<string, unknown> | undefined): string[] {
+  const bad: string[] = [];
+  const isBareNumeric = (v: unknown): boolean =>
+    (typeof v === "string" && /^\d+$/.test(v)) || (typeof v === "number" && Number.isInteger(v) && v > 0);
+  const walk = (val: unknown, path: string, keyIsId: boolean): void => {
+    if (Array.isArray(val)) {
+      val.forEach((x, i) => walk(x, `${path}[${i}]`, keyIsId));
+      return;
+    }
+    if (val && typeof val === "object") {
+      for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+        walk(v, path ? `${path}.${k}` : k, /(^|_)id$|Id$/.test(k));
+      }
+      return;
+    }
+    if (keyIsId && isBareNumeric(val)) bad.push(`${path} = ${String(val)}`);
+  };
+  if (variables) walk(variables, "", false);
+  return bad;
+}
+
+/** Recursively collects non-empty userErrors from anywhere in a mutation response. */
+function collectUserErrors(data: unknown): Array<{ field?: string[] | null; message: string }> {
+  const out: Array<{ field?: string[] | null; message: string }> = [];
+  const walk = (val: unknown): void => {
+    if (Array.isArray(val)) {
+      val.forEach(walk);
+      return;
+    }
+    if (val && typeof val === "object") {
+      for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+        if (k === "userErrors" && Array.isArray(v)) out.push(...(v as Array<{ field?: string[] | null; message: string }>));
+        else walk(v);
+      }
+    }
+  };
+  walk(data);
+  return out.filter((e) => e && typeof e.message === "string");
+}
+
 export function registerReadMiscTools(server: McpServer, client: ShopifyClient): void {
   registerTool(server, client, {
     name: "shopify_list_collections",
@@ -530,6 +598,63 @@ export function registerReadMiscTools(server: McpServer, client: ShopifyClient):
 }
 
 export function registerWriteMiscTools(server: McpServer, client: ShopifyClient): void {
+  registerTool(server, client, {
+    name: "shopify_graphql_mutation",
+    title: "Run Shopify Admin GraphQL Mutation",
+    description:
+      "Escape hatch: run an arbitrary Shopify Admin GraphQL MUTATION (writes) — for any resource without " +
+      "a dedicated tool. Read queries are rejected; use shopify_graphql_query for those. The mutation MUST " +
+      "select `userErrors { field message }`: any non-empty userErrors is returned as a tool error, never a " +
+      "silent success. IDs must be full GIDs (gid://shopify/Type/123), not bare numbers — bare numeric ids " +
+      "are rejected with the offending variable path. dryRun defaults to TRUE: it validates and echoes the " +
+      "parsed operation name + variables without executing.",
+    inputSchema: {
+      mutation: z.string().describe("A GraphQL mutation document. Must be a mutation and must select userErrors."),
+      variables: z.record(z.unknown()).optional().describe("Optional variables object, passed to the Admin API. IDs must be full GIDs."),
+      dryRun: z
+        .boolean()
+        .default(true)
+        .describe("If true (default), validate and echo the operation + variables WITHOUT executing. Set false to run."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    handler: async (args, c) => {
+      const operationName = assertMutationDoc(args.mutation);
+      requireUserErrorsSelection(args.mutation);
+      const bareIds = findBareIds(args.variables);
+      if (bareIds.length) {
+        throw new ShopifyError(
+          `Bare numeric ID(s) where the write API requires full GIDs: ${bareIds.join("; ")}. ` +
+            "Pass gid://shopify/<Type>/<id> (e.g. gid://shopify/Customer/12345) instead of the bare number.",
+        );
+      }
+
+      if (args.dryRun) {
+        return {
+          markdown:
+            `**DRY RUN** — mutation \`${operationName}\` validated (mutation ✓, userErrors selected ✓, ids ✓), not executed.\n\n` +
+            "```json\n" + JSON.stringify(args.variables ?? {}, null, 2) + "\n```\n\n" +
+            "_Re-run with dryRun:false to execute._",
+          structured: { dryRun: true, operationName, variables: args.variables ?? {} },
+          cost: undefined,
+        };
+      }
+
+      const res = await c.request<Record<string, unknown>>(args.mutation, args.variables);
+      const userErrors = collectUserErrors(res.data);
+      if (userErrors.length) {
+        throw new ShopifyError(
+          `Mutation \`${operationName}\` returned userErrors: ` +
+            userErrors.map((e) => `${e.field && e.field.length ? `[${e.field.join(".")}] ` : ""}${e.message}`).join("; "),
+        );
+      }
+      return {
+        markdown: "```json\n" + JSON.stringify(stripGids(res.data), null, 2) + "\n```",
+        structured: { operationName, data: stripGids(res.data) },
+        cost: res.cost,
+      };
+    },
+  });
+
   registerTool(server, client, {
     name: "shopify_create_discount_code",
     title: "Create discount code",

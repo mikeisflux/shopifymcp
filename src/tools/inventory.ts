@@ -254,7 +254,7 @@ async function collectVariantInv(
 }
 
 /** Collects every product GID for the given target (single product or whole collection). */
-async function collectProductGids(
+export async function collectProductGids(
   c: ShopifyClient,
   args: { productId?: string; collectionId?: string },
 ): Promise<string[]> {
@@ -286,7 +286,7 @@ async function collectProductGids(
 }
 
 /** Collects every variant GID for a product, paginating as needed. */
-async function collectVariantGids(c: ShopifyClient, productGid: string): Promise<string[]> {
+export async function collectVariantGids(c: ShopifyClient, productGid: string): Promise<string[]> {
   const ids: string[] = [];
   let after: string | null = null;
   do {

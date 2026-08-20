@@ -14,7 +14,7 @@ import { gidToId, toGid, stripGids } from "../format.js";
 const CREATE_CUSTOMER = /* GraphQL */ `
   mutation CreateCustomer($input: CustomerInput!) {
     customerCreate(input: $input) {
-      customer { id displayName email phone }
+      customer { id displayName email phone taxExempt taxExemptions }
       userErrors { field message }
     }
   }
@@ -23,7 +23,7 @@ const CREATE_CUSTOMER = /* GraphQL */ `
 const UPDATE_CUSTOMER = /* GraphQL */ `
   mutation UpdateCustomer($input: CustomerInput!) {
     customerUpdate(input: $input) {
-      customer { id displayName email phone }
+      customer { id displayName email phone taxExempt taxExemptions }
       userErrors { field message }
     }
   }
@@ -78,6 +78,8 @@ interface CustomerMutationResult {
   displayName: string;
   email: string | null;
   phone: string | null;
+  taxExempt?: boolean;
+  taxExemptions?: string[];
 }
 
 /** Maps a friendly address arg to a Shopify MailingAddressInput, omitting empty fields. */
@@ -99,8 +101,8 @@ export function registerCustomerWriteTools(server: McpServer, client: ShopifyCli
     name: "shopify_create_customer",
     title: "Create customer",
     description:
-      "Create a customer with contact details, an optional note, tags, and one or more addresses. " +
-      "At least one of firstName, lastName, email, or phone is normally required by Shopify.",
+      "Create a customer with contact details, an optional note, tags, tax-exempt status, and one or " +
+      "more addresses. At least one of firstName, lastName, email, or phone is normally required by Shopify.",
     inputSchema: {
       firstName: z.string().optional().describe("Customer first name."),
       lastName: z.string().optional().describe("Customer last name."),
@@ -108,6 +110,14 @@ export function registerCustomerWriteTools(server: McpServer, client: ShopifyCli
       phone: z.string().optional().describe('Customer phone in E.164 format, e.g. "+15551234567".'),
       note: z.string().optional().describe("Internal note about the customer (not shown to them)."),
       tags: z.array(z.string()).optional().describe('Tags, e.g. ["vip", "wholesale"].'),
+      taxExempt: z
+        .boolean()
+        .optional()
+        .describe("Whether the customer is exempt from all taxes. Set true so their orders are not taxed."),
+      taxExemptions: z
+        .array(z.string())
+        .optional()
+        .describe('Specific Shopify TaxExemption enum values, e.g. ["CA_STATUS_CARD_EXEMPTION"]. Usually leave unset and use taxExempt.'),
       addresses: z
         .array(addressSchema)
         .optional()
@@ -122,6 +132,8 @@ export function registerCustomerWriteTools(server: McpServer, client: ShopifyCli
       if (args.phone !== undefined) input.phone = args.phone;
       if (args.note !== undefined) input.note = args.note;
       if (args.tags !== undefined) input.tags = args.tags;
+      if (args.taxExempt !== undefined) input.taxExempt = args.taxExempt;
+      if (args.taxExemptions !== undefined) input.taxExemptions = args.taxExemptions;
       if (args.addresses !== undefined) input.addresses = args.addresses.map(toMailingAddressInput);
 
       const res = await c.request<{
@@ -146,7 +158,8 @@ export function registerCustomerWriteTools(server: McpServer, client: ShopifyCli
     name: "shopify_update_customer",
     title: "Update customer",
     description:
-      "Partially update a customer. Only the fields you provide are changed. " +
+      "Partially update a customer — including tax-exempt status (set taxExempt:true so their orders " +
+      "are not taxed). Only the fields you provide are changed. " +
       "Providing `tags` replaces the full tag list; `addresses` replaces the customer's addresses.",
     inputSchema: {
       id: z.string().describe("Customer id (numeric or GID)."),
@@ -156,6 +169,14 @@ export function registerCustomerWriteTools(server: McpServer, client: ShopifyCli
       phone: z.string().optional().describe('Customer phone in E.164 format, e.g. "+15551234567".'),
       note: z.string().optional().describe("Internal note about the customer (not shown to them)."),
       tags: z.array(z.string()).optional().describe("Replaces the full tag list."),
+      taxExempt: z
+        .boolean()
+        .optional()
+        .describe("Whether the customer is exempt from all taxes. Set true so their orders are not taxed."),
+      taxExemptions: z
+        .array(z.string())
+        .optional()
+        .describe('Specific Shopify TaxExemption enum values, e.g. ["CA_STATUS_CARD_EXEMPTION"]. Usually leave unset and use taxExempt.'),
       addresses: z
         .array(addressSchema)
         .optional()
@@ -170,6 +191,8 @@ export function registerCustomerWriteTools(server: McpServer, client: ShopifyCli
       if (args.phone !== undefined) input.phone = args.phone;
       if (args.note !== undefined) input.note = args.note;
       if (args.tags !== undefined) input.tags = args.tags;
+      if (args.taxExempt !== undefined) input.taxExempt = args.taxExempt;
+      if (args.taxExemptions !== undefined) input.taxExemptions = args.taxExemptions;
       if (args.addresses !== undefined) input.addresses = args.addresses.map(toMailingAddressInput);
 
       const res = await c.request<{
@@ -180,8 +203,9 @@ export function registerCustomerWriteTools(server: McpServer, client: ShopifyCli
       }>(UPDATE_CUSTOMER, { input });
       assertNoUserErrors(res.data.customerUpdate.userErrors);
       const customer = res.data.customerUpdate.customer!;
+      const taxNote = customer.taxExempt !== undefined ? ` Tax-exempt: ${customer.taxExempt}.` : "";
       return {
-        markdown: `Updated customer **${customer.displayName}** (id ${gidToId(customer.id)}).`,
+        markdown: `Updated customer **${customer.displayName}** (id ${gidToId(customer.id)}).${taxNote}`,
         structured: { customer: stripGids(customer) },
         cost: res.cost,
       };

@@ -14,6 +14,7 @@ import {
   money,
   stripGids,
 } from "../format.js";
+import { collectProductGids, collectVariantGids } from "./inventory.js";
 
 interface Money {
   amount: string;
@@ -362,7 +363,7 @@ const UPDATE_VARIANTS = /* GraphQL */ `
   mutation UpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
     productVariantsBulkUpdate(productId: $productId, variants: $variants) {
       productVariants {
-        id title sku price compareAtPrice inventoryPolicy
+        id title sku price compareAtPrice inventoryPolicy taxable
         inventoryItem {
           tracked requiresShipping
           measurement { weight { value unit } }
@@ -602,7 +603,7 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
     title: "Update product variant",
     description:
       "Update a single variant's price, compare-at price, SKU, inventory policy, inventory tracking, " +
-      "weight, or whether it requires shipping. Requires both the product id and the variant id.",
+      "weight, whether it requires shipping, or whether it is taxable. Requires both the product id and the variant id.",
     inputSchema: {
       productId: z.string().describe("Parent product id (numeric or GID)."),
       variantId: z.string().describe("Variant id (numeric or GID)."),
@@ -632,6 +633,11 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
         .boolean()
         .optional()
         .describe("Whether this variant is a physical item that requires shipping."),
+      taxable: z
+        .boolean()
+        .optional()
+        .describe("Whether sales tax applies to this variant. Set false for tax-exempt items (e.g. digital goods)."),
+      taxCode: z.string().optional().describe("Tax code for this variant (e.g. a Avalara/TaxJar code). Optional."),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     handler: async (args, c) => {
@@ -639,6 +645,8 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
       if (args.price !== undefined) variant.price = args.price;
       if (args.compareAtPrice !== undefined) variant.compareAtPrice = args.compareAtPrice || null;
       if (args.inventoryPolicy !== undefined) variant.inventoryPolicy = args.inventoryPolicy;
+      if (args.taxable !== undefined) variant.taxable = args.taxable;
+      if (args.taxCode !== undefined) variant.taxCode = args.taxCode;
 
       // sku, tracked, weight, and requiresShipping all live on the inventoryItem.
       const inventoryItem: Record<string, unknown> = {};
@@ -1300,6 +1308,77 @@ export function registerProductWriteTools(server: McpServer, client: ShopifyClie
           ".",
         structured: { productId: gidToId(args.productId), option: option.name, changes },
         cost: res.cost,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_set_variant_taxable",
+    title: "Set variant taxable (bulk)",
+    description:
+      "Mark every variant of a single product OR every product in a collection taxable or non-taxable " +
+      "in one call — e.g. flip a whole digital product to non-taxable so sales tax stops being added. " +
+      "The server iterates products/variants (handling pagination) and returns how many variants " +
+      "changed. Provide exactly one of productId or collectionId. dryRun defaults to TRUE. Requires " +
+      "the write_products scope.",
+    inputSchema: {
+      taxable: z.boolean().describe("true = sales tax applies; false = tax-exempt (e.g. digital goods)."),
+      productId: z.string().optional().describe("Apply to every variant of this product (numeric or GID)."),
+      collectionId: z.string().optional().describe("Apply to every variant of every product in this collection (numeric or GID)."),
+      taxCode: z.string().optional().describe("Optional tax code to set on every affected variant."),
+      dryRun: z.boolean().default(true).describe("If true (default), report the plan and change nothing. Set false to execute."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      if ((!args.productId && !args.collectionId) || (args.productId && args.collectionId)) {
+        throw new Error("Provide exactly one of productId or collectionId.");
+      }
+      const productGids = await collectProductGids(c, args);
+
+      // Count variants first (needed for both dry-run and execute).
+      const perProduct: Array<{ productGid: string; variantGids: string[] }> = [];
+      let totalVariants = 0;
+      for (const productGid of productGids) {
+        const variantGids = await collectVariantGids(c, productGid);
+        perProduct.push({ productGid, variantGids });
+        totalVariants += variantGids.length;
+      }
+      const scope = args.collectionId ? `collection ${gidToId(args.collectionId)}` : `product ${gidToId(args.productId!)}`;
+
+      if (args.dryRun) {
+        return {
+          markdown:
+            `**DRY RUN** — would set taxable=${args.taxable}${args.taxCode ? ` (taxCode "${args.taxCode}")` : ""} on ` +
+            `${totalVariants} variant(s) across ${productGids.length} product(s) in ${scope}.\n\n` +
+            `_Nothing changed. Re-run with dryRun:false to apply._`,
+          structured: { dryRun: true, taxable: args.taxable, products: productGids.length, variants: totalVariants },
+          cost: undefined,
+        };
+      }
+
+      let changed = 0;
+      const errors: string[] = [];
+      for (const { productGid, variantGids } of perProduct) {
+        for (let i = 0; i < variantGids.length; i += 100) {
+          const chunk = variantGids.slice(i, i + 100);
+          const variants = chunk.map((id) => {
+            const v: Record<string, unknown> = { id, taxable: args.taxable };
+            if (args.taxCode !== undefined) v.taxCode = args.taxCode;
+            return v;
+          });
+          const res = await c.request<{
+            productVariantsBulkUpdate: { userErrors: Array<{ field: string[] | null; message: string }> };
+          }>(UPDATE_VARIANTS, { productId: productGid, variants });
+          const ue = res.data.productVariantsBulkUpdate.userErrors;
+          if (ue.length) errors.push(`${gidToId(productGid)}: ${ue.map((e) => e.message).join("; ")}`);
+          else changed += chunk.length;
+        }
+      }
+      const errBlock = errors.length ? `\n\n**${errors.length} error(s):**\n` + errors.slice(0, 20).map((e) => `- ${e}`).join("\n") : "";
+      return {
+        markdown: `Set taxable=${args.taxable} on ${changed}/${totalVariants} variant(s) across ${productGids.length} product(s) in ${scope}.${errBlock}`,
+        structured: { dryRun: false, taxable: args.taxable, products: productGids.length, variantsChanged: changed, errorCount: errors.length, errors },
+        cost: undefined,
       };
     },
   });

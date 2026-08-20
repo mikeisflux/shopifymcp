@@ -178,6 +178,21 @@ function main(): void {
       shopify_auth_mode: config.authMode,
       api_version: config.shopifyApiVersion,
     });
+
+    // Best-effort: log which access scopes the token actually holds, so a mutation
+    // failing on a missing scope is diagnosable from the startup logs. Never fatal.
+    void (async () => {
+      try {
+        const res = await client.request<{ currentAppInstallation: { accessScopes: Array<{ handle: string }> } }>(
+          "query AccessScopes { currentAppInstallation { accessScopes { handle } } }",
+        );
+        const scopes = res.data.currentAppInstallation.accessScopes.map((s) => s.handle).sort();
+        const writeScopes = scopes.filter((s) => s.startsWith("write_"));
+        log.info("access_scopes", { total: scopes.length, write_scopes: writeScopes });
+      } catch (err) {
+        log.warn("access_scopes_check_failed", { error: err instanceof Error ? err.message : String(err) });
+      }
+    })();
   });
 
   const shutdown = (signal: string) => {

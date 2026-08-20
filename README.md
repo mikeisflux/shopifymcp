@@ -258,6 +258,7 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_list_publications` | List sales channels (publications) with ids. Needs `read_publications`. |
 | `shopify_list_menus` | List navigation menus with their full item trees (up to 3 levels). Needs `read_online_store_navigation`. |
 | `shopify_graphql_query` | Escape hatch: run an arbitrary **read-only** GraphQL query. Rejects any string containing a `mutation`. |
+| `shopify_graphql_mutation` | **Write escape hatch:** run an arbitrary Admin GraphQL **mutation**. Rejects read queries, requires a `userErrors` selection and surfaces non-empty `userErrors` as an error, rejects bare numeric IDs (needs GIDs). `dryRun` defaults on. |
 
 ### Write tools (only when `ENABLE_WRITES=true`)
 
@@ -266,7 +267,8 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_create_product` | Create a product, incl. handle and SEO title/description (a default variant is created automatically). |
 | `shopify_update_product` | Partial product update: title, description, vendor, type, tags, handle, SEO, theme template, status. |
 | `shopify_duplicate_product` | Duplicate a product (copies variants, options, and optionally images) with a new title/status. |
-| `shopify_update_variant` | Update a variant's price, compare-at, SKU, inventory policy, or inventory tracking. |
+| `shopify_update_variant` | Update a variant's price, compare-at, SKU, inventory policy, inventory tracking, weight, requires-shipping, or **taxable**. |
+| `shopify_set_variant_taxable` | **Bulk:** mark every variant of a product or collection taxable/non-taxable in one call (e.g. flip a digital product tax-exempt). `dryRun` defaults on. |
 | `shopify_create_variant` | Add one or more variants (with option values) to an existing product. |
 | `shopify_reorder_option_values` | Set the display order of a product option's values (list order = position). |
 | `shopify_reset_handles` | **Bulk:** set each product's URL handle to slugify(title); skips already-correct, reports collisions (never auto-suffixes). No redirects created. `dryRun` defaults on. |

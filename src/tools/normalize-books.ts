@@ -550,11 +550,13 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
     name: "shopify_normalize_book_variants",
     title: "Normalize book variants + merge foils (bulk)",
     description:
-      "Normalize comic-book products in a collection to the standard 5 covers — Regular $15 / Foil " +
-      "$35 / Metal $55 / Glow in the Dark $55 / Raised Metal $55, option 'Cover' — MERGING standalone " +
-      "sibling listings (e.g. a separate Foil product) into the base product as a variant, carrying " +
-      "their inventory across, then DELETING the emptied sibling. BLANK/CYC/SHAFT and -2ND covers are " +
-      "handled as their own sets, never merged. dryRun defaults to TRUE and reports deletes, " +
+      "Normalize comic-book products in a collection to the standard 5 covers — Regular $25 / Foil " +
+      "$45 / Metal $65 / Glow in the Dark $75 / Raised Metal $65 (override via `prices`), option " +
+      "'Cover' — MERGING standalone sibling listings (e.g. a separate Foil product) into the base " +
+      "product as a variant, carrying their inventory across, then DELETING the emptied sibling. " +
+      "PRECONDITION: products are grouped by their base SKU, so a variant SKU is required — products " +
+      "with NO SKUs are skipped and listed (they are NOT normalized). BLANK/CYC/SHAFT and -2ND covers " +
+      "are handled as their own sets, never merged. dryRun defaults to TRUE and reports deletes, " +
       "inventory moves, and reprices separately — review them before executing. On execute, a sibling " +
       "is deleted only AFTER its carried stock is verified on the new variant (a failure leaves a " +
       "duplicate, never lost stock).",
@@ -632,10 +634,16 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
       const totalUnits = deletes.reduce((n, m) => n + m.total, 0);
       const totalReprices = groups.reduce((n, g) => n + g.updates.filter((u) => u.reprice).length, 0);
       const totalCreates = groups.reduce((n, g) => n + g.creates.length, 0);
+      const noSkuCount = skips.filter((s) => s.reason === "no SKUs").length;
+      // Loud callout so an all-skipped run isn't mistaken for a successful no-op.
+      const noSkuWarning = noSkuCount
+        ? `\n\n> ⚠️ **${noSkuCount} product(s) were skipped because they have NO SKUs** and could not be ` +
+          `grouped. This is NOT a success for them — add a base SKU to each and re-run to normalize them.`
+        : "";
 
       if (args.dryRun) {
         const md =
-          `**DRY RUN — ${groups.length} base product(s), ${skips.length} skipped**\n` +
+          `**DRY RUN — ${groups.length} base product(s), ${skips.length} skipped**` + noSkuWarning + `\n` +
           `- 🗑️ Would DELETE ${deletes.length} sibling product(s) (after stock verified)\n` +
           `- 📦 Would MOVE stock: ${totalUnits} unit(s) across ${totalMoves} location-transfer(s)\n` +
           `- ⚠️ Would REPRICE ${totalReprices} existing variant(s)\n` +
@@ -661,7 +669,7 @@ export function registerNormalizeBookTools(server: McpServer, client: ShopifyCli
       return {
         markdown:
           `Normalized ${done}/${groups.length} base product(s). Moved ${totalUnits} unit(s), ` +
-          `repriced ${totalReprices}, created ${totalCreates}. ${skips.length} skipped.` + errBlock,
+          `repriced ${totalReprices}, created ${totalCreates}. ${skips.length} skipped.` + noSkuWarning + errBlock,
         structured: { dryRun: false, normalized: done, groups: groups.length, skipped: skips.length, totalUnits, totalReprices, totalCreates, errors },
         cost: undefined,
       };
