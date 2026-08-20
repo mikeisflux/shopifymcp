@@ -264,6 +264,9 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_bulk_set_product_status` | **Bulk:** set ACTIVE/DRAFT/ARCHIVED across productIds, a collection, or a productType in one call. `dryRun` defaults on. |
 | `shopify_get_collection` / `shopify_reorder_collection_products` / `shopify_set_collection_image` | Read one collection's detail (incl. smart rules), reorder products in a manual collection, and set/clear its image. Complements the existing create/update/add/remove/delete collection tools. |
 | `shopify_list_url_redirects` / `shopify_create_url_redirect` / `shopify_delete_url_redirect` | Manage storefront URL redirects (e.g. after a handle change so old links don't 404). |
+| `shopify_edit_order` | Add variant / custom line items to an existing order (wraps the begin→add→commit flow). `dryRun` shows the recalculated total before committing. |
+| `shopify_create_return` | Open a return against fulfilled line items (by fulfillmentLineItemId, variantId, or SKU). `dryRun` echoes the resolved lines. |
+| `shopify_issue_store_credit` | Credit a customer's store-credit account. `dryRun` shows current → resulting balance. |
 
 ### Write tools (only when `ENABLE_WRITES=true`)
 
