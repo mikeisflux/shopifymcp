@@ -272,6 +272,8 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_publish_theme` / `shopify_delete_theme` | Make a theme live (shows what it replaces), or delete a non-live theme. `dryRun` defaults on. |
 | `shopify_bulk_update_product_option` | **Bulk:** rename an option / its values across many products in one call (server-side loop over productOptionUpdate, throttled, per-item error capture, aggregated summary). |
 | `shopify_bulk_graphql_mutation` | **General bulk escape hatch:** run one mutation across many variable sets. Validates every op up front (mutation, userErrors, GIDs), then loops with throttling and captures per-item failures. |
+| `shopify_bulk_set_variant_weight` | **Bulk:** set the same weight + unit on every variant of a product / list / collection. Aggregated {productsProcessed, variantsUpdated, failed, failures}. |
+| `shopify_bulk_tag` | **Bulk:** add and/or remove tags across a product / list / collection / productType in one call. |
 
 ### Write tools (only when `ENABLE_WRITES=true`)
 

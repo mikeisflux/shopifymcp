@@ -13,12 +13,63 @@ import { ShopifyClient } from "../shopify-client.js";
 import { registerTool } from "./shared.js";
 import { gidToId, toGid } from "../format.js";
 import { assertMutationDoc, requireUserErrorsSelection, findBareIds, collectUserErrors } from "./misc.js";
+import { collectProductGids, collectVariantGids } from "./inventory.js";
 
 const MAX_ITEMS = 1000;
 const DEFAULT_DELAY_MS = 500;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const PRODUCTS_BY_TYPE = /* GraphQL */ `
+  query BulkProductsByType($first: Int!, $after: String, $query: String) {
+    products(first: $first, after: $after, query: $query) {
+      pageInfo { hasNextPage endCursor }
+      nodes { id }
+    }
+  }
+`;
+
+const BULK_VARIANT_UPDATE = /* GraphQL */ `
+  mutation BulkVariantUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+    productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+      productVariants { id }
+      userErrors { field message }
+    }
+  }
+`;
+
+const TAGS_ADD = /* GraphQL */ `
+  mutation BulkTagsAdd($id: ID!, $tags: [String!]!) {
+    tagsAdd(id: $id, tags: $tags) { userErrors { field message } }
+  }
+`;
+
+const TAGS_REMOVE = /* GraphQL */ `
+  mutation BulkTagsRemove($id: ID!, $tags: [String!]!) {
+    tagsRemove(id: $id, tags: $tags) { userErrors { field message } }
+  }
+`;
+
+/** Resolves a product-target arg to product GIDs (productId | productIds | collectionId | productType). */
+async function resolveTargetProductGids(
+  c: ShopifyClient,
+  args: { productId?: string; productIds?: string[]; collectionId?: string; productType?: string },
+): Promise<string[]> {
+  if (args.productId) return [toGid("Product", args.productId)];
+  if (args.productIds) return args.productIds.map((id) => toGid("Product", id));
+  if (args.collectionId) return collectProductGids(c, { collectionId: args.collectionId });
+  const gids: string[] = [];
+  let after: string | null = null;
+  const query = `product_type:'${(args.productType ?? "").replace(/'/g, "")}'`;
+  do {
+    const r: { data: { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string }> } } } =
+      await c.request(PRODUCTS_BY_TYPE, { first: 100, after, query });
+    gids.push(...r.data.products.nodes.map((n) => n.id));
+    after = r.data.products.pageInfo.hasNextPage ? r.data.products.pageInfo.endCursor : null;
+  } while (after);
+  return gids;
 }
 
 const UPDATE_PRODUCT_OPTION = /* GraphQL */ `
@@ -238,6 +289,146 @@ export function registerBulkTools(server: McpServer, client: ShopifyClient): voi
         markdown: `Bulk mutation: **${succeeded}/${total} succeeded**, ${failures.length} failed.` +
           (failures.length ? `\n\nFirst failures:\n` + failures.slice(0, 15).map((f) => `- [${f.index}] ${f.operationName}: ${f.error}`).join("\n") : ""),
         structured: { total, succeeded, failed: failures.length, failures: failures.slice(0, 200) },
+        cost: undefined,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_bulk_set_variant_weight",
+    title: "Set variant weight (bulk)",
+    description:
+      "Set the same weight + unit on every variant of a product, a list of products, or every product " +
+      "in a collection — in one call. The server iterates products/variants (handling pagination) and " +
+      "batches productVariantsBulkUpdate with inventoryItem.measurement.weight. Continues past per-item " +
+      "failures and returns {productsProcessed, variantsUpdated, failed, failures}. Provide exactly one of " +
+      `productId, productIds, or collectionId. dryRun defaults to FALSE. Max ${MAX_ITEMS} products per call.`,
+    inputSchema: {
+      weight: z.number().positive().describe("Weight value to set on every variant."),
+      weightUnit: z.enum(["GRAMS", "KILOGRAMS", "OUNCES", "POUNDS"]).describe("Unit for the weight."),
+      productId: z.string().optional().describe("Single product — all its variants."),
+      productIds: z.array(z.string()).optional().describe("Explicit list of products."),
+      collectionId: z.string().optional().describe("Every product in this collection."),
+      dryRun: z.boolean().default(false).describe("If true, resolve the product set and echo the plan without writing. Default FALSE."),
+      delayMs: z.number().int().min(0).max(5000).default(DEFAULT_DELAY_MS).describe("Delay between product calls (ms). Default 500."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      const targets = [args.productId, args.productIds, args.collectionId].filter((x) => x !== undefined).length;
+      if (targets !== 1) throw new Error("Provide exactly one of productId, productIds, or collectionId.");
+      const productGids = await resolveTargetProductGids(c, args);
+      if (productGids.length > MAX_ITEMS) throw new Error(`Target resolves to ${productGids.length} products; cap is ${MAX_ITEMS}. Narrow the target or split the job.`);
+
+      if (args.dryRun) {
+        return {
+          markdown:
+            `**DRY RUN** — would set weight ${args.weight} ${args.weightUnit} on every variant of ${productGids.length} product(s). ` +
+            `(Variant counts are computed at execute.)\n\n_Nothing changed. Re-run with dryRun:false to apply._`,
+          structured: { dryRun: true, weight: args.weight, weightUnit: args.weightUnit, productsResolved: productGids.length },
+          cost: undefined,
+        };
+      }
+
+      const measurement = { measurement: { weight: { value: args.weight, unit: args.weightUnit } } };
+      let productsProcessed = 0;
+      let variantsUpdated = 0;
+      const failures: Array<{ productId: string; error: string }> = [];
+
+      for (let i = 0; i < productGids.length; i++) {
+        const productGid = productGids[i]!;
+        try {
+          const variantGids = await collectVariantGids(c, productGid);
+          let productError: string | null = null;
+          for (let j = 0; j < variantGids.length; j += 100) {
+            const chunk = variantGids.slice(j, j + 100);
+            const variants = chunk.map((id) => ({ id, inventoryItem: { ...measurement } }));
+            const res = await c.request<{ productVariantsBulkUpdate: { userErrors: Array<{ field: string[] | null; message: string }> } }>(
+              BULK_VARIANT_UPDATE, { productId: productGid, variants },
+            );
+            const ue = res.data.productVariantsBulkUpdate.userErrors;
+            if (ue.length) productError = ue.map((e) => e.message).join("; ");
+            else variantsUpdated += chunk.length;
+          }
+          if (productError) failures.push({ productId: gidToId(productGid), error: productError });
+          else productsProcessed++;
+        } catch (err) {
+          failures.push({ productId: gidToId(productGid), error: err instanceof Error ? err.message : String(err) });
+        }
+        if (args.delayMs > 0 && i < productGids.length - 1) await sleep(args.delayMs);
+      }
+
+      return {
+        markdown:
+          `Set weight ${args.weight} ${args.weightUnit} on **${variantsUpdated} variant(s)** across ` +
+          `${productsProcessed}/${productGids.length} product(s). ${failures.length} failed.` +
+          (failures.length ? `\n\nFirst failures:\n` + failures.slice(0, 15).map((f) => `- ${f.productId}: ${f.error}`).join("\n") : ""),
+        structured: { productsProcessed, variantsUpdated, failed: failures.length, failures: failures.slice(0, 200) },
+        cost: undefined,
+      };
+    },
+  });
+
+  registerTool(server, client, {
+    name: "shopify_bulk_tag",
+    title: "Add/remove tags (bulk)",
+    description:
+      "Add and/or remove tags across many products at once — a single product, a list, every product " +
+      "in a collection, or every product of a productType. Adds are applied then removes, per product " +
+      "(tagsAdd/tagsRemove). Continues past per-item failures and returns {productsProcessed, failed, " +
+      `failures}. Provide exactly one target. dryRun defaults to FALSE. Max ${MAX_ITEMS} products per call.`,
+    inputSchema: {
+      add: z.array(z.string()).optional().describe("Tags to add."),
+      remove: z.array(z.string()).optional().describe("Tags to remove."),
+      productId: z.string().optional().describe("Single product."),
+      productIds: z.array(z.string()).optional().describe("Explicit list of products."),
+      collectionId: z.string().optional().describe("Every product in this collection."),
+      productType: z.string().optional().describe('Every product of this type, e.g. "Art Print".'),
+      dryRun: z.boolean().default(false).describe("If true, resolve the set and echo the plan without writing. Default FALSE."),
+      delayMs: z.number().int().min(0).max(5000).default(DEFAULT_DELAY_MS).describe("Delay between product calls (ms). Default 500."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    handler: async (args, c) => {
+      const targets = [args.productId, args.productIds, args.collectionId, args.productType].filter((x) => x !== undefined).length;
+      if (targets !== 1) throw new Error("Provide exactly one of productId, productIds, collectionId, or productType.");
+      if (!args.add?.length && !args.remove?.length) throw new Error("Provide at least one tag in add or remove.");
+      const productGids = await resolveTargetProductGids(c, args);
+      if (productGids.length > MAX_ITEMS) throw new Error(`Target resolves to ${productGids.length} products; cap is ${MAX_ITEMS}. Narrow the target or split the job.`);
+
+      if (args.dryRun) {
+        return {
+          markdown:
+            `**DRY RUN** — across ${productGids.length} product(s): ` +
+            [args.add?.length ? `add [${args.add.join(", ")}]` : null, args.remove?.length ? `remove [${args.remove.join(", ")}]` : null].filter(Boolean).join("; ") +
+            `.\n\n_Nothing changed. Re-run with dryRun:false to apply._`,
+          structured: { dryRun: true, productsResolved: productGids.length, add: args.add ?? [], remove: args.remove ?? [] },
+          cost: undefined,
+        };
+      }
+
+      let productsProcessed = 0;
+      const failures: Array<{ productId: string; error: string }> = [];
+      for (let i = 0; i < productGids.length; i++) {
+        const productGid = productGids[i]!;
+        try {
+          if (args.add?.length) {
+            const r = await c.request<{ tagsAdd: { userErrors: Array<{ field: string[] | null; message: string }> } }>(TAGS_ADD, { id: productGid, tags: args.add });
+            if (r.data.tagsAdd.userErrors.length) throw new Error(r.data.tagsAdd.userErrors.map((e) => e.message).join("; "));
+          }
+          if (args.remove?.length) {
+            const r = await c.request<{ tagsRemove: { userErrors: Array<{ field: string[] | null; message: string }> } }>(TAGS_REMOVE, { id: productGid, tags: args.remove });
+            if (r.data.tagsRemove.userErrors.length) throw new Error(r.data.tagsRemove.userErrors.map((e) => e.message).join("; "));
+          }
+          productsProcessed++;
+        } catch (err) {
+          failures.push({ productId: gidToId(productGid), error: err instanceof Error ? err.message : String(err) });
+        }
+        if (args.delayMs > 0 && i < productGids.length - 1) await sleep(args.delayMs);
+      }
+
+      return {
+        markdown: `Tagged **${productsProcessed}/${productGids.length}** product(s). ${failures.length} failed.` +
+          (failures.length ? `\n\nFirst failures:\n` + failures.slice(0, 15).map((f) => `- ${f.productId}: ${f.error}`).join("\n") : ""),
+        structured: { productsProcessed, failed: failures.length, failures: failures.slice(0, 200) },
         cost: undefined,
       };
     },
