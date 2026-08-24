@@ -338,7 +338,7 @@ function assertReadOnly(query: string): void {
 }
 
 /** Ensures the document is a mutation (not a read). Returns the operation name. */
-function assertMutationDoc(doc: string): string {
+export function assertMutationDoc(doc: string): string {
   const stripped = doc.replace(/^(?:\s*#[^\n]*\n)*\s*/, "");
   if (/^\s*(?:query\b|subscription\b|\{)/i.test(stripped)) {
     throw new ShopifyError(
@@ -355,7 +355,7 @@ function assertMutationDoc(doc: string): string {
 }
 
 /** Rejects a mutation that doesn't select userErrors, so a silent failure can't slip through. */
-function requireUserErrorsSelection(doc: string): void {
+export function requireUserErrorsSelection(doc: string): void {
   if (!/\buserErrors\b/.test(doc)) {
     throw new ShopifyError(
       "The mutation must select `userErrors { field message }` so failures aren't silently dropped " +
@@ -365,7 +365,7 @@ function requireUserErrorsSelection(doc: string): void {
 }
 
 /** Finds bare numeric IDs under id-like variable keys; the write API rejects these (needs GIDs). */
-function findBareIds(variables: Record<string, unknown> | undefined): string[] {
+export function findBareIds(variables: Record<string, unknown> | undefined): string[] {
   const bad: string[] = [];
   const isBareNumeric = (v: unknown): boolean =>
     (typeof v === "string" && /^\d+$/.test(v)) || (typeof v === "number" && Number.isInteger(v) && v > 0);
@@ -387,7 +387,7 @@ function findBareIds(variables: Record<string, unknown> | undefined): string[] {
 }
 
 /** Recursively collects non-empty userErrors from anywhere in a mutation response. */
-function collectUserErrors(data: unknown): Array<{ field?: string[] | null; message: string }> {
+export function collectUserErrors(data: unknown): Array<{ field?: string[] | null; message: string }> {
   const out: Array<{ field?: string[] | null; message: string }> = [];
   const walk = (val: unknown): void => {
     if (Array.isArray(val)) {

@@ -36,6 +36,7 @@ import { registerPricingTools } from "./tools/pricing.js";
 import { registerManagementReadTools, registerManagementWriteTools } from "./tools/management.js";
 import { registerAdvancedOrderTools } from "./tools/orders-advanced.js";
 import { registerThemeReadTools, registerThemeWriteTools } from "./tools/themes.js";
+import { registerBulkTools } from "./tools/bulk.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
@@ -84,6 +85,7 @@ function buildServer(config: Config, client: ShopifyClient): McpServer {
     registerManagementWriteTools(server, client);
     registerAdvancedOrderTools(server, client);
     registerThemeWriteTools(server, client);
+    registerBulkTools(server, client);
   }
 
   return server;

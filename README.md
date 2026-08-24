@@ -270,6 +270,8 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_list_themes` / `shopify_get_theme_files` | List themes with role (MAIN = live) and read theme file contents. |
 | `shopify_edit_theme_files` / `shopify_delete_theme_files` | Create/update/delete theme files (Liquid, JSON, assets). Editing the **live** theme requires `allowLiveTheme:true`; `dryRun` defaults on. Needs `write_themes` + a Shopify theme-edit exemption. |
 | `shopify_publish_theme` / `shopify_delete_theme` | Make a theme live (shows what it replaces), or delete a non-live theme. `dryRun` defaults on. |
+| `shopify_bulk_update_product_option` | **Bulk:** rename an option / its values across many products in one call (server-side loop over productOptionUpdate, throttled, per-item error capture, aggregated summary). |
+| `shopify_bulk_graphql_mutation` | **General bulk escape hatch:** run one mutation across many variable sets. Validates every op up front (mutation, userErrors, GIDs), then loops with throttling and captures per-item failures. |
 
 ### Write tools (only when `ENABLE_WRITES=true`)
 
