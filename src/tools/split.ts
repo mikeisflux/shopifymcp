@@ -67,6 +67,12 @@ const PRODUCT_CREATE = /* GraphQL */ `
   }
 `;
 
+const CHECK_SKU = /* GraphQL */ `
+  query SplitCheckSku($query: String!) {
+    productVariants(first: 5, query: $query) { nodes { id sku } }
+  }
+`;
+
 const VARIANT_UPDATE = /* GraphQL */ `
   mutation SplitVariantUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
     productVariantsBulkUpdate(productId: $productId, variants: $variants) {
@@ -192,6 +198,7 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
       price: z.string().default("5.00").describe('Flat price for every new product, e.g. "5.00".'),
       copyImages: z.enum(["featured", "all"]).default("featured").describe('"featured" copies the parent\'s first image to every split (the ask); "all" copies every image.'),
       copyTags: z.boolean().default(false).describe("Copy the parent's tags to new products. Default FALSE — inheriting a smart-collection series tag makes splits rejoin the source collection. Opt in only if you know the tags are safe."),
+      skipExisting: z.boolean().default(true).describe("Before creating each split, check by SKU whether it already exists and skip if so (counted as alreadyExisted). Default TRUE — makes any re-run idempotent/safe. Set false only to force duplicates."),
       newProductStatus: z.enum(["ACTIVE", "DRAFT"]).default("ACTIVE").describe("Status for the new products. Default ACTIVE."),
       originalProductAction: z.enum(["leave", "draft", "archive", "delete"]).default("leave").describe("What to do with each source product after its variants split. Default leave."),
       maxProducts: z.number().int().min(1).max(MAX_PRODUCTS).default(MAX_PRODUCTS).describe(`Page size — source products processed per call (max ${MAX_PRODUCTS}). Oversized sources page across calls via nextCursor.`),
@@ -210,6 +217,7 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
         price: args.price ?? "5.00",
         copyImages: args.copyImages ?? "featured",
         copyTags: args.copyTags ?? false,
+        skipExisting: args.skipExisting ?? true,
         newProductStatus: args.newProductStatus ?? "ACTIVE",
         originalProductAction: args.originalProductAction ?? "leave",
         dryRun: args.dryRun ?? true,
@@ -281,6 +289,7 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
 
       let sourceProductsProcessed = 0;
       let newProductsCreated = 0;
+      let alreadyExisted = 0;
       let originalProductsUpdated = 0;
       const failures: Array<{ sourceProductId: string; variantId?: string; error: string }> = [];
 
@@ -294,6 +303,16 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
 
         for (const np of newProducts) {
           try {
+            // Idempotency: skip if a product with this SKU already exists (safe re-run).
+            if (args.skipExisting) {
+              const chk = await c.request<{ productVariants: { nodes: Array<{ id: string; sku: string | null }> } }>(CHECK_SKU, { query: `sku:${JSON.stringify(np.sku)}` });
+              if (chk.data.productVariants.nodes.some((n) => n.sku === np.sku)) {
+                alreadyExisted++;
+                if (args.delayMs > 0) await sleep(args.delayMs);
+                continue;
+              }
+            }
+
             const cr = await c.request<{ productCreate: { product: { id: string; variants: { nodes: Array<{ id: string }> } } | null; userErrors: Array<{ field: string[] | null; message: string }> } }>(
               PRODUCT_CREATE, { input: { title: np.title, productType: product.productType, status: args.newProductStatus, ...(args.copyTags ? { tags: product.tags } : {}) }, media: media.length ? media : null },
             );
@@ -350,14 +369,14 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
 
       return {
         markdown:
-          `Split ${sourceProductsProcessed}/${products.length} product(s) → **${newProductsCreated} new product(s)** in ` +
-          `"${args.destinationCollectionTitle}"` +
+          `Split ${sourceProductsProcessed}/${products.length} product(s) → **${newProductsCreated} new product(s)** ` +
+          `(${alreadyExisted} already existed, skipped) in "${args.destinationCollectionTitle}"` +
           (args.originalProductAction !== "leave" ? `; ${originalProductsUpdated} original(s) ${args.originalProductAction}d` : "; originals left live") +
           `. ${failures.length} failure(s).` +
           (failures.length ? `\n\nFirst failures:\n` + failures.slice(0, 15).map((f) => `- ${f.sourceProductId}${f.variantId ? `/${f.variantId}` : ""}: ${f.error}`).join("\n") : "") +
           (hasMore ? `\n\n**More products remain** — call again with cursor: "${nextCursor}" to continue.` : "") +
           `\n\n_Next: set quantity with shopify_bulk_set_inventory_quantity on "${args.destinationCollectionTitle}"._`,
-        structured: { sourceProductsProcessed, newProductsCreated, originalProductsUpdated, failed: failures.length, hasMore, nextCursor, failures: failures.slice(0, 200) },
+        structured: { sourceProductsProcessed, newProductsCreated, alreadyExisted, originalProductsUpdated, failed: failures.length, hasMore, nextCursor, failures: failures.slice(0, 200) },
         cost: undefined,
       };
     },
