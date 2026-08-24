@@ -52,14 +52,48 @@ const TAGS_REMOVE = /* GraphQL */ `
   }
 `;
 
-/** Resolves a product-target arg to product GIDs (productId | productIds | collectionId | productType). */
-async function resolveTargetProductGids(
-  c: ShopifyClient,
-  args: { productId?: string; productIds?: string[]; collectionId?: string; productType?: string },
-): Promise<string[]> {
+const COLLECTIONS_SEARCH = /* GraphQL */ `
+  query BulkCollectionsSearch($query: String!, $first: Int!) {
+    collections(first: $first, query: $query) { nodes { id title } }
+  }
+`;
+
+interface TargetArgs {
+  productId?: string;
+  productIds?: string[];
+  collectionId?: string;
+  collectionIds?: string[];
+  collectionTitleContains?: string[];
+  productType?: string;
+}
+
+/**
+ * Resolves a product-target arg to product GIDs. Supports a single product, a
+ * list, one or MANY collections (by id or title-contains, deduped across them),
+ * or a productType.
+ */
+async function resolveTargetProductGids(c: ShopifyClient, args: TargetArgs): Promise<string[]> {
   if (args.productId) return [toGid("Product", args.productId)];
   if (args.productIds) return args.productIds.map((id) => toGid("Product", id));
-  if (args.collectionId) return collectProductGids(c, { collectionId: args.collectionId });
+
+  // Collection targets (any combination of collectionId / collectionIds / title-contains).
+  const collectionGids: string[] = [];
+  if (args.collectionId) collectionGids.push(toGid("Collection", args.collectionId));
+  for (const id of args.collectionIds ?? []) collectionGids.push(toGid("Collection", id));
+  for (const term of args.collectionTitleContains ?? []) {
+    const r = await c.request<{ collections: { nodes: Array<{ id: string; title: string }> } }>(COLLECTIONS_SEARCH, { query: `title:${JSON.stringify(term)}`, first: 100 });
+    for (const n of r.data.collections.nodes) if (n.title.toLowerCase().includes(term.toLowerCase())) collectionGids.push(n.id);
+  }
+  if (collectionGids.length) {
+    const seen = new Set<string>();
+    for (const cg of new Set(collectionGids)) {
+      const ids = await collectProductGids(c, { collectionId: cg });
+      for (const id of ids) seen.add(id);
+    }
+    return [...seen];
+  }
+
+  // productType.
   const gids: string[] = [];
   let after: string | null = null;
   const query = `product_type:'${(args.productType ?? "").replace(/'/g, "")}'`;
@@ -372,24 +406,28 @@ export function registerBulkTools(server: McpServer, client: ShopifyClient): voi
     name: "shopify_bulk_tag",
     title: "Add/remove tags (bulk)",
     description:
-      "Add and/or remove tags across many products at once — a single product, a list, every product " +
-      "in a collection, or every product of a productType. Adds are applied then removes, per product " +
-      "(tagsAdd/tagsRemove). Continues past per-item failures and returns {productsProcessed, failed, " +
-      `failures}. Provide exactly one target. dryRun defaults to FALSE. Max ${MAX_ITEMS} products per call.`,
+      "Add and/or remove tags across many products at once — a single product, a list, one or MANY " +
+      "collections (by id, ids, or title-contains — e.g. all \"Main Books\" collections), or every " +
+      "product of a productType. Products are deduped across collections. Adds are applied then removes, " +
+      "per product (tagsAdd/tagsRemove). Continues past per-item failures and returns {productsProcessed, " +
+      `failed, failures}. Provide exactly one target group. dryRun defaults FALSE. Max ${MAX_ITEMS} products.`,
     inputSchema: {
       add: z.array(z.string()).optional().describe("Tags to add."),
       remove: z.array(z.string()).optional().describe("Tags to remove."),
       productId: z.string().optional().describe("Single product."),
       productIds: z.array(z.string()).optional().describe("Explicit list of products."),
-      collectionId: z.string().optional().describe("Every product in this collection."),
+      collectionId: z.string().optional().describe("Every product in this one collection."),
+      collectionIds: z.array(z.string()).optional().describe("Every product across these collections (deduped)."),
+      collectionTitleContains: z.array(z.string()).optional().describe('Every product in collections whose title contains any of these, e.g. ["Main Books","Main Prints"].'),
       productType: z.string().optional().describe('Every product of this type, e.g. "Art Print".'),
       dryRun: z.boolean().default(false).describe("If true, resolve the set and echo the plan without writing. Default FALSE."),
       delayMs: z.number().int().min(0).max(5000).default(DEFAULT_DELAY_MS).describe("Delay between product calls (ms). Default 500."),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     handler: async (args, c) => {
-      const targets = [args.productId, args.productIds, args.collectionId, args.productType].filter((x) => x !== undefined).length;
-      if (targets !== 1) throw new Error("Provide exactly one of productId, productIds, collectionId, or productType.");
+      const collectionTargetUsed = Boolean(args.collectionId || args.collectionIds?.length || args.collectionTitleContains?.length);
+      const targetGroups = [Boolean(args.productId), Boolean(args.productIds?.length), collectionTargetUsed, Boolean(args.productType)].filter(Boolean).length;
+      if (targetGroups !== 1) throw new Error("Provide exactly one target: productId, productIds, a collection target (collectionId/collectionIds/collectionTitleContains), or productType.");
       if (!args.add?.length && !args.remove?.length) throw new Error("Provide at least one tag in add or remove.");
       const productGids = await resolveTargetProductGids(c, args);
       if (productGids.length > MAX_ITEMS) throw new Error(`Target resolves to ${productGids.length} products; cap is ${MAX_ITEMS}. Narrow the target or split the job.`);

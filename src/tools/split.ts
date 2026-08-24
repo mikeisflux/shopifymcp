@@ -5,8 +5,11 @@
  * optionally act on the original.
  *
  * Per new product: title "{base}{sep}{variant}{suffix}", flat price, SKU
- * "{original-or-derived}{suffix}", parent's product_type + tags, parent's
- * image(s). The suffix (default "-ebaylive") keeps titles/SKUs/handles from
+ * "{original-or-derived}{suffix}", parent's product_type, parent's image(s).
+ * Tags are NOT copied by default: the source collections are smart collections
+ * keyed on a series tag, so inheriting it would make split products silently
+ * rejoin the very collection they came from (opt back in with copyTags:true).
+ * The suffix (default "-ebaylive") keeps titles/SKUs/handles from
  * colliding with the originals when those are left live. Quantity is NOT set
  * here — run shopify_bulk_set_inventory_quantity on the destination afterward.
  *
@@ -109,7 +112,7 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
     description:
       "For every product in the source collection(s), create one single-variant product per variant — " +
       "titled \"{base}{sep}{variant}{suffix}\", flat `price`, SKU \"{original-or-derived}{suffix}\", " +
-      "carrying the parent's product_type + tags and copying the parent's image — then add all new " +
+      "carrying the parent's product_type (NOT its tags by default — copyTags:true to opt in) and copying the parent's image — then add all new " +
       "products to a destination collection (created if missing). The `suffix` (default \"-ebaylive\") " +
       "prevents title/SKU/handle collisions with originals left live. Quantity is NOT set here — run " +
       "shopify_bulk_set_inventory_quantity on the destination afterward. The original is left/drafted/" +
@@ -124,6 +127,7 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
       suffix: z.string().default("-ebaylive").describe('Appended to every new title AND SKU to avoid collisions. Default "-ebaylive". Pass "" for none.'),
       price: z.string().default("5.00").describe('Flat price for every new product, e.g. "5.00".'),
       copyImages: z.enum(["featured", "all"]).default("featured").describe('"featured" copies the parent\'s first image to every split (the ask); "all" copies every image.'),
+      copyTags: z.boolean().default(false).describe("Copy the parent's tags to new products. Default FALSE — inheriting a smart-collection series tag makes splits rejoin the source collection. Opt in only if you know the tags are safe."),
       newProductStatus: z.enum(["ACTIVE", "DRAFT"]).default("ACTIVE").describe("Status for the new products. Default ACTIVE."),
       originalProductAction: z.enum(["leave", "draft", "archive", "delete"]).default("leave").describe("What to do with each source product after its variants split. Default leave."),
       dryRun: z.boolean().default(true).describe("If true (default), list the new products that would be created without creating anything."),
@@ -139,6 +143,7 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
         suffix: args.suffix ?? "-ebaylive",
         price: args.price ?? "5.00",
         copyImages: args.copyImages ?? "featured",
+        copyTags: args.copyTags ?? false,
         newProductStatus: args.newProductStatus ?? "ACTIVE",
         originalProductAction: args.originalProductAction ?? "leave",
         dryRun: args.dryRun ?? true,
@@ -234,7 +239,7 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
         for (const np of newProducts) {
           try {
             const cr = await c.request<{ productCreate: { product: { id: string; variants: { nodes: Array<{ id: string }> } } | null; userErrors: Array<{ field: string[] | null; message: string }> } }>(
-              PRODUCT_CREATE, { input: { title: np.title, productType: product.productType, tags: product.tags, status: args.newProductStatus }, media: media.length ? media : null },
+              PRODUCT_CREATE, { input: { title: np.title, productType: product.productType, status: args.newProductStatus, ...(args.copyTags ? { tags: product.tags } : {}) }, media: media.length ? media : null },
             );
             if (cr.data.productCreate.userErrors.length) throw new Error(cr.data.productCreate.userErrors.map((e) => e.message).join("; "));
             const newProd = cr.data.productCreate.product!;

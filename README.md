@@ -273,7 +273,7 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_bulk_update_product_option` | **Bulk:** rename an option / its values across many products in one call (server-side loop over productOptionUpdate, throttled, per-item error capture, aggregated summary). |
 | `shopify_bulk_graphql_mutation` | **General bulk escape hatch:** run one mutation across many variable sets. Validates every op up front (mutation, userErrors, GIDs), then loops with throttling and captures per-item failures. |
 | `shopify_bulk_set_variant_weight` | **Bulk:** set the same weight + unit on every variant of a product / list / collection. Aggregated {productsProcessed, variantsUpdated, failed, failures}. |
-| `shopify_bulk_tag` | **Bulk:** add and/or remove tags across a product / list / collection / productType in one call. |
+| `shopify_bulk_tag` | **Bulk:** add and/or remove tags across a product / list / **one or many collections** (ids or title-contains, deduped) / productType in one call. |
 | `shopify_bulk_split_variants_to_products` (**"Ebay Live Splitoff"**) | **Bulk/structural:** split every variant of every product in the source collection(s) into its own single-variant product (title/SKU + `-ebaylive` suffix, flat price, copied image, carried type/tags), add all to a destination collection, and act on the originals — only after all a product's variants split. `dryRun` defaults on. |
 
 ### Write tools (only when `ENABLE_WRITES=true`)
