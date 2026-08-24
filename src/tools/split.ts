@@ -44,11 +44,14 @@ const SOURCE_PRODUCTS = /* GraphQL */ `
     collection(id: $id) {
       id title
       products(first: $first, after: $after) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          id title productType tags
-          media(first: 25) { nodes { mediaContentType ... on MediaImage { image { url altText } } } }
-          variants(first: 100) { nodes { id title sku } }
+        pageInfo { hasNextPage }
+        edges {
+          cursor
+          node {
+            id title productType tags
+            media(first: 25) { nodes { mediaContentType ... on MediaImage { image { url altText } } } }
+            variants(first: 100) { nodes { id title sku } }
+          }
         }
       }
     }
@@ -105,6 +108,67 @@ function sanitizeSkuBase(s: string): string {
   return s.trim().replace(/\s+/g, "-").replace(/[^A-Za-z0-9._-]/g, "");
 }
 
+interface PageCursor { ci: number; after: string | null }
+function encodeCursor(p: PageCursor): string {
+  return Buffer.from(JSON.stringify(p)).toString("base64");
+}
+function decodeCursor(s: string | undefined): PageCursor {
+  if (!s) return { ci: 0, after: null };
+  try {
+    const p = JSON.parse(Buffer.from(s, "base64").toString("utf8"));
+    if (typeof p.ci === "number" && (p.after === null || typeof p.after === "string")) return p;
+  } catch { /* fall through */ }
+  return { ci: 0, after: null };
+}
+
+/**
+ * Collects up to `maxProducts` products across the ordered collection list,
+ * starting from `cursor`. Walks into the next collection when one is exhausted.
+ * Returns the products, whether more remain, and the cursor to resume from.
+ * Deduped within the page (across-page dedup isn't possible statelessly — for
+ * overlapping collections, prefer one collectionId per call).
+ */
+async function collectPage(
+  c: ShopifyClient,
+  collectionGids: string[],
+  maxProducts: number,
+  cursor: string | undefined,
+): Promise<{ products: SrcProduct[]; hasMore: boolean; nextCursor: string | null }> {
+  let { ci, after } = decodeCursor(cursor);
+  const products: SrcProduct[] = [];
+  const seen = new Set<string>();
+
+  while (ci < collectionGids.length) {
+    const colGid = collectionGids[ci]!;
+    // Page through this collection until the page is full or the collection ends.
+    for (;;) {
+      const pageSize = Math.min(50, maxProducts - products.length + 1);
+      const r: { data: { collection: { products: { pageInfo: { hasNextPage: boolean }; edges: Array<{ cursor: string; node: SrcProduct }> } } | null } } =
+        await c.request(SOURCE_PRODUCTS, { id: colGid, first: pageSize, after });
+      if (!r.data.collection) throw new Error(`No collection found with id ${gidToId(colGid)}.`);
+      const edges = r.data.collection.products.edges;
+      const hasNext = r.data.collection.products.pageInfo.hasNextPage;
+
+      for (let e = 0; e < edges.length; e++) {
+        const { cursor: edgeCursor, node } = edges[e]!;
+        if (!seen.has(node.id)) { seen.add(node.id); products.push(node); }
+        if (products.length >= maxProducts) {
+          const moreInThisCollection = e < edges.length - 1 || hasNext;
+          if (moreInThisCollection) return { products, hasMore: true, nextCursor: encodeCursor({ ci, after: edgeCursor }) };
+          if (ci + 1 < collectionGids.length) return { products, hasMore: true, nextCursor: encodeCursor({ ci: ci + 1, after: null }) };
+          return { products, hasMore: false, nextCursor: null };
+        }
+        after = edgeCursor;
+      }
+      if (hasNext) continue; // more products in this collection, keep paging
+      break; // collection exhausted
+    }
+    ci++;
+    after = null;
+  }
+  return { products, hasMore: false, nextCursor: null };
+}
+
 export function registerSplitTools(server: McpServer, client: ShopifyClient): void {
   registerTool(server, client, {
     name: "shopify_bulk_split_variants_to_products",
@@ -130,6 +194,8 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
       copyTags: z.boolean().default(false).describe("Copy the parent's tags to new products. Default FALSE — inheriting a smart-collection series tag makes splits rejoin the source collection. Opt in only if you know the tags are safe."),
       newProductStatus: z.enum(["ACTIVE", "DRAFT"]).default("ACTIVE").describe("Status for the new products. Default ACTIVE."),
       originalProductAction: z.enum(["leave", "draft", "archive", "delete"]).default("leave").describe("What to do with each source product after its variants split. Default leave."),
+      maxProducts: z.number().int().min(1).max(MAX_PRODUCTS).default(MAX_PRODUCTS).describe(`Page size — source products processed per call (max ${MAX_PRODUCTS}). Oversized sources page across calls via nextCursor.`),
+      cursor: z.string().optional().describe("Opaque pagination cursor from a previous call's nextCursor. Omit for the first page."),
       dryRun: z.boolean().default(true).describe("If true (default), list the new products that would be created without creating anything."),
       delayMs: z.number().int().min(0).max(5000).default(DEFAULT_DELAY_MS).describe("Delay between calls (ms). Default 500."),
     },
@@ -149,6 +215,7 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
         dryRun: args.dryRun ?? true,
         delayMs: args.delayMs ?? DEFAULT_DELAY_MS,
         destinationCollectionTitle: args.destinationCollectionTitle ?? "EBAYLIVE",
+        maxProducts: args.maxProducts ?? MAX_PRODUCTS,
       };
       const hasIds = Boolean(args.sourceCollectionIds?.length);
       const hasTitles = Boolean(args.sourceCollectionTitleContains?.length);
@@ -169,20 +236,8 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
         if (collectionGids.length === 0) throw new Error(`No collections matched ${JSON.stringify(args.sourceCollectionTitleContains)}.`);
       }
 
-      // List products across all source collections (dedupe by id, enforce cap).
-      const productById = new Map<string, SrcProduct>();
-      for (const colGid of collectionGids) {
-        let after: string | null = null;
-        do {
-          const r: { data: { collection: { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: SrcProduct[] } } | null } } =
-            await c.request(SOURCE_PRODUCTS, { id: colGid, first: 50, after });
-          if (!r.data.collection) throw new Error(`No collection found with id ${gidToId(colGid)}.`);
-          for (const p of r.data.collection.products.nodes) if (!productById.has(p.id)) productById.set(p.id, p);
-          if (productById.size > MAX_PRODUCTS) throw new Error(`Source resolves to more than ${MAX_PRODUCTS} products; narrow to fewer collections per call (this job batches across multiple calls).`);
-          after = r.data.collection.products.pageInfo.hasNextPage ? r.data.collection.products.pageInfo.endCursor : null;
-        } while (after);
-      }
-      const products = [...productById.values()];
+      // Collect one page of products (paging across the oversized/multiple collections).
+      const { products, hasMore, nextCursor } = await collectPage(c, collectionGids, args.maxProducts, args.cursor);
 
       // Build the plan.
       const plan = products.map((p) => ({
@@ -210,8 +265,9 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
             `${destGid ? "" : " (would be CREATED)"}; originals: ${args.originalProductAction}.\n\n` +
             sample.map((n) => `- ${n.title}  [${n.sku}]`).join("\n") +
             (totalNew > sample.length ? `\n… and ${totalNew - sample.length} more` : "") +
+            (hasMore ? `\n\n**More products remain** — after executing this page, call again with cursor from nextCursor.` : "") +
             `\n\n_Quantity is not set here — run shopify_bulk_set_inventory_quantity on the destination after. Nothing created. Re-run with dryRun:false to execute._`,
-          structured: { dryRun: true, sourceCollections: collectionGids.length, sourceProducts: products.length, newProductsPlanned: totalNew, destinationExists: Boolean(destGid), newProductStatus: args.newProductStatus, price: args.price, originalProductAction: args.originalProductAction, plan: plan.map((p) => ({ sourceProductId: gidToId(p.product.id), newProducts: p.newProducts.map((n) => ({ title: n.title, sku: n.sku })) })) },
+          structured: { dryRun: true, sourceCollections: collectionGids.length, sourceProducts: products.length, newProductsPlanned: totalNew, destinationExists: Boolean(destGid), newProductStatus: args.newProductStatus, price: args.price, originalProductAction: args.originalProductAction, hasMore, nextCursor, plan: plan.map((p) => ({ sourceProductId: gidToId(p.product.id), newProducts: p.newProducts.map((n) => ({ title: n.title, sku: n.sku })) })) },
           cost: undefined,
         };
       }
@@ -299,8 +355,9 @@ export function registerSplitTools(server: McpServer, client: ShopifyClient): vo
           (args.originalProductAction !== "leave" ? `; ${originalProductsUpdated} original(s) ${args.originalProductAction}d` : "; originals left live") +
           `. ${failures.length} failure(s).` +
           (failures.length ? `\n\nFirst failures:\n` + failures.slice(0, 15).map((f) => `- ${f.sourceProductId}${f.variantId ? `/${f.variantId}` : ""}: ${f.error}`).join("\n") : "") +
+          (hasMore ? `\n\n**More products remain** — call again with cursor: "${nextCursor}" to continue.` : "") +
           `\n\n_Next: set quantity with shopify_bulk_set_inventory_quantity on "${args.destinationCollectionTitle}"._`,
-        structured: { sourceProductsProcessed, newProductsCreated, originalProductsUpdated, failed: failures.length, failures: failures.slice(0, 200) },
+        structured: { sourceProductsProcessed, newProductsCreated, originalProductsUpdated, failed: failures.length, hasMore, nextCursor, failures: failures.slice(0, 200) },
         cost: undefined,
       };
     },
