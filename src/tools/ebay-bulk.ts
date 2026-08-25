@@ -57,11 +57,18 @@ function parseTitle(raw: string): { code: string; descriptor: string } {
   return { code: "", descriptor: base };
 }
 
-function buildTitle(template: string, vars: Record<string, string>): string {
+function fillTitle(template: string, vars: Record<string, string>): string {
   let filled = template.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? "");
   // Tidy up when an optional placeholder (e.g. {artist}) was empty.
-  filled = filled.replace(/\(\s*\)/g, "").replace(/\s*-\s*$/, "").replace(/\s+/g, " ").trim();
-  return filled.length > 80 ? filled.slice(0, 80).trim() : filled;
+  filled = filled.replace(/\(\s*\)/g, "").replace(/\s*-\s*(\[|$)/, "$1").replace(/\s+/g, " ").trim();
+  return filled;
+}
+
+/** Fill the template, dropping the artist if needed to keep the SKU tag within eBay's 80-char limit. */
+function buildTitle(template: string, vars: Record<string, string>): string {
+  let title = fillTitle(template, vars);
+  if (title.length > 80 && vars.artist) title = fillTitle(template, { ...vars, artist: "" });
+  return title.length > 80 ? title.slice(0, 80).trim() : title;
 }
 
 /** Best-effort artist name from tags: a multi-word tag that isn't a system/collection tag. */
@@ -91,9 +98,9 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
       inputSchema: {
         collectionId: z.string().describe("Shopify collection (numeric id or GID) to list from, e.g. book-deadsexy-1-ebaylive."),
         seriesLabel: z.string().describe("Human series name used in titles + Series Title aspect, e.g. \"Dead Sexy #1\"."),
-        titleTemplate: z.string().default("{series} {descriptor} Variant Cover - {vendor} ({artist})").describe("Title template; placeholders {series} {descriptor} {code} {vendor} {sku} {artist}. Empty ()/trailing - are cleaned up. Truncated to eBay's 80-char limit."),
+        titleTemplate: z.string().default("{series} {descriptor} Variant - {vendor} ({artist}) [{skucode}]").describe("Title template; placeholders {series} {descriptor} {code} {vendor} {sku} {skucode}(=sku without -ebaylive) {artist}. Empty ()/dangling - cleaned; artist auto-dropped if the title would exceed eBay's 80-char limit so the SKU tag survives."),
         weightLb: z.number().positive().default(0.5).describe("Package weight in pounds for calculated shipping."),
-        maxProducts: z.number().int().min(1).max(300).default(50).describe("How many products to process this call. Use a high value for dryRun preview; smaller (≤50) for live runs, then continue with nextCursor."),
+        maxProducts: z.number().int().min(1).max(250).default(50).describe("How many products to process this call (Shopify caps page size at 250). Use 250 for dryRun preview; smaller (≤50) for live runs, then continue with nextCursor."),
         cursor: z.string().optional().describe("Opaque product cursor from a previous call's nextCursor, to continue."),
         skipExisting: z.boolean().default(true).describe("Skip SKUs that already have an eBay offer (safe re-runs / no duplicates)."),
         requireHostedImage: z.boolean().default(true).describe("If eBay image hosting fails, skip the item instead of publishing a listing whose image won't show on eBay Live."),
@@ -133,7 +140,8 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
           const { code, descriptor } = parseTitle(p.title);
           const vendor = p.vendor ?? "Divinity Comics";
           const artist = pickArtist(p.tags);
-          const title = buildTitle(args.titleTemplate, { series: args.seriesLabel, descriptor, code, vendor, sku, artist });
+          const skucode = sku.replace(/-ebaylive$/i, "");
+          const title = buildTitle(args.titleTemplate, { series: args.seriesLabel, descriptor, code, vendor, sku, skucode, artist });
           const rawImg = p.featuredImage?.url ?? "";
           const imageUrl = rawImg ? cleanImageUrl(rawImg) : "";
 
