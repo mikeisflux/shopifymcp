@@ -193,14 +193,18 @@ export class EbayClient {
     const url = new URL(this.apiBase + (path.startsWith("/") ? path : `/${path}`));
     for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined) url.searchParams.set(k, String(v));
 
+    const lang = opts.contentLanguage ?? "en-US";
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
+      // eBay's Sell Inventory endpoints require a valid Accept-Language; omitting
+      // it yields HTTP 400 error 25709 ("Invalid value for header Accept-Language").
+      "Accept-Language": lang,
       "X-EBAY-C-MARKETPLACE-ID": opts.marketplaceId ?? this.config.ebayMarketplaceId,
     };
     if (opts.body !== undefined) {
       headers["Content-Type"] = "application/json";
-      headers["Content-Language"] = opts.contentLanguage ?? "en-US";
+      headers["Content-Language"] = lang;
     }
 
     let res: Response;
