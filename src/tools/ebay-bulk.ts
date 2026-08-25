@@ -95,14 +95,15 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
         weightLb: z.number().positive().default(0.5).describe("Package weight in pounds for calculated shipping."),
         maxProducts: z.number().int().min(1).max(300).default(50).describe("How many products to process this call. Use a high value for dryRun preview; smaller (≤50) for live runs, then continue with nextCursor."),
         cursor: z.string().optional().describe("Opaque product cursor from a previous call's nextCursor, to continue."),
-        skipExisting: z.boolean().default(true).describe("Skip SKUs that already have an eBay offer (safe re-runs)."),
+        skipExisting: z.boolean().default(true).describe("Skip SKUs that already have an eBay offer (safe re-runs / no duplicates)."),
+        requireHostedImage: z.boolean().default(true).describe("If eBay image hosting fails, skip the item instead of publishing a listing whose image won't show on eBay Live."),
         dryRun: z.boolean().default(true).describe("true (default): preview proposed listings without creating them. false: create + publish live auctions."),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
     (async (args: {
       collectionId: string; seriesLabel: string; titleTemplate: string; weightLb: number;
-      maxProducts: number; cursor?: string; skipExisting: boolean; dryRun: boolean;
+      maxProducts: number; cursor?: string; skipExisting: boolean; requireHostedImage: boolean; dryRun: boolean;
     }) => {
       const start = Date.now();
       const listed: Array<{ sku: string; itemId: string; title: string; startPrice: string; imageHosted: boolean }> = [];
@@ -145,19 +146,28 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
           try {
             if (args.skipExisting) {
               const existing = await ebay.request("GET", "/sell/inventory/v1/offer", { query: { sku } }).catch(() => null);
-              const offers = (existing?.data as { offers?: unknown[] } | undefined)?.offers;
-              if (offers && offers.length) { skipped.push({ sku, reason: "eBay offer already exists" }); continue; }
+              const offers = (existing?.data as { offers?: Array<{ status?: string; listing?: { listingId?: string } }> } | undefined)?.offers;
+              if (offers && offers.length) {
+                const live = offers.find((o) => o.status === "PUBLISHED" || o.listing?.listingId);
+                skipped.push({ sku, reason: live ? `already published (item ${live.listing?.listingId ?? "?"})` : "offer already exists (unpublished — publish or delete it manually)" });
+                continue;
+              }
             }
 
             // Copy the image to eBay-hosted storage so it shows on eBay Live (not
-            // just the standard listing) with no manual crop. Fall back to the raw
-            // URL if hosting fails (listing still valid on standard eBay).
+            // just the standard listing) with no manual crop.
             let listingImage = imageUrl;
             let imageHosted = false;
             try {
               listingImage = await ebay.uploadHostedPicture(imageUrl, sku);
               imageHosted = true;
-            } catch { /* keep raw URL; recorded below */ }
+            } catch (hostErr) {
+              if (args.requireHostedImage) {
+                failed.push({ sku, title, error: `image hosting failed (would be invisible on eBay Live): ${hostErr instanceof Error ? hostErr.message : String(hostErr)}` });
+                continue;
+              }
+              /* requireHostedImage:false → keep raw URL; imageHosted:false recorded below */
+            }
 
             await ebay.request("PUT", `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
               body: {
@@ -201,6 +211,16 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
           }
         }
 
+        // Title-collision report: eBay allows duplicate titles, but two covers
+        // resolving to the same title usually means the template needs {code}.
+        const byTitle = new Map<string, string[]>();
+        for (const it of args.dryRun ? preview : listed) {
+          const arr = byTitle.get(it.title) ?? [];
+          arr.push(it.sku);
+          byTitle.set(it.title, arr);
+        }
+        const collisions = [...byTitle.entries()].filter(([, skus]) => skus.length > 1).map(([title, skus]) => ({ title, skus }));
+
         const summary = {
           collection: collection.title,
           dryRun: args.dryRun,
@@ -208,17 +228,20 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
           listedCount: listed.length,
           skippedCount: skipped.length,
           failedCount: failed.length,
+          collisionCount: collisions.length,
           hasMore,
           nextCursor: hasMore ? nextCursor : null,
           itemIds: listed.map((l) => l.itemId),
           listed,
           preview,
+          collisions,
           skipped,
           failed,
         };
+        const collisionNote = collisions.length ? ` ⚠️ ${collisions.length} title collision(s) — add {code} to titleTemplate.` : "";
         const head = args.dryRun
-          ? `**DRY RUN** — ${preview.length} auction(s) proposed from "${collection.title}" (nothing sent to eBay). Review titles/prices, then re-run with dryRun:false.`
-          : `Listed ${listed.length} auction(s) from "${collection.title}"; ${skipped.length} skipped, ${failed.length} failed.${hasMore ? " More remain — continue with nextCursor." : ""}`;
+          ? `**DRY RUN** — ${preview.length} auction(s) proposed from "${collection.title}" (nothing sent to eBay).${collisionNote} Review titles/prices, then re-run with dryRun:false.`
+          : `Listed ${listed.length} auction(s) from "${collection.title}"; ${skipped.length} skipped, ${failed.length} failed.${collisionNote}${hasMore ? " More remain — continue with nextCursor." : ""}`;
         logToolCall({ tool: "ebay_bulk_list_auctions", durationMs: Date.now() - start, success: true });
         return { content: [textContent(`${head}\n\n\`\`\`json\n${JSON.stringify(summary, null, 2).slice(0, 14000)}\n\`\`\``)], structuredContent: summary };
       } catch (err) {
