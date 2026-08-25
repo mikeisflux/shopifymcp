@@ -11,7 +11,7 @@ services:
     #   - "3000:3000"
     networks:
       - mcp-net
-    mem_limit: 256m
+    mem_limit: 512m
     logging:
       driver: json-file
       options:
