@@ -73,13 +73,16 @@ export class EbayClient {
    * configured accepted URL with `?code=…`.
    */
   buildAuthorizeUrl(redirectUri: string, scopes: string): string {
-    const u = new URL(this.signinBase + "/oauth2/authorize");
-    u.searchParams.set("client_id", this.config.ebayClientId ?? "");
-    u.searchParams.set("response_type", "code");
-    u.searchParams.set("redirect_uri", redirectUri);
-    u.searchParams.set("scope", scopes);
-    u.searchParams.set("prompt", "login");
-    return u.toString();
+    // Build the query manually so spaces in `scope` are %20-encoded (eBay's
+    // authorize endpoint rejects the `+` that URLSearchParams would emit) and no
+    // unsupported params (e.g. prompt) are added.
+    const params = [
+      `client_id=${encodeURIComponent(this.config.ebayClientId ?? "")}`,
+      `response_type=code`,
+      `redirect_uri=${encodeURIComponent(redirectUri)}`,
+      `scope=${encodeURIComponent(scopes)}`,
+    ];
+    return `${this.signinBase}/oauth2/authorize?${params.join("&")}`;
   }
 
   /**
