@@ -6,5 +6,8 @@ dist
 .env.*
 *.log
 npm-debug.log*
+*.key
+*.crt
+*.ts.net*
 README.md
 SHOPIFY_MCP_SPEC.md
