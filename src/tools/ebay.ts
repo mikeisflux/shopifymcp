@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { EbayClient, EbayError } from "../ebay-client.js";
+import type { Config, EbayListingDefaults } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent } from "../format.js";
 
@@ -59,7 +60,34 @@ function ok(status: number, data: unknown, extra: Record<string, unknown> = {}):
 
 const bodySchema = z.record(z.unknown());
 
-export function registerEbayTools(server: McpServer, ebay: EbayClient): void {
+/** Fills an offer payload with the seller's baked-in defaults where fields are absent (caller-provided values always win). */
+function withOfferDefaults(body: Record<string, unknown>, d: EbayListingDefaults, marketplaceId: string): Record<string, unknown> {
+  const out = { ...body };
+  if (out.marketplaceId === undefined) out.marketplaceId = marketplaceId;
+  if (out.format === undefined) out.format = d.format;
+  if (out.categoryId === undefined && d.categoryId) out.categoryId = d.categoryId;
+  if (out.merchantLocationKey === undefined) out.merchantLocationKey = d.locationKey;
+  if (out.listingDuration === undefined) out.listingDuration = d.listingDuration;
+  const lp: Record<string, unknown> = { ...((out.listingPolicies as Record<string, unknown> | undefined) ?? {}) };
+  if (lp.fulfillmentPolicyId === undefined && d.fulfillmentPolicyId) lp.fulfillmentPolicyId = d.fulfillmentPolicyId;
+  if (lp.paymentPolicyId === undefined && d.paymentPolicyId) lp.paymentPolicyId = d.paymentPolicyId;
+  if (lp.returnPolicyId === undefined && d.returnPolicyId) lp.returnPolicyId = d.returnPolicyId;
+  out.listingPolicies = lp;
+  return out;
+}
+
+/** Builds a default inventory-location payload from the seller's ship-from address. */
+function defaultLocationBody(d: EbayListingDefaults): Record<string, unknown> {
+  return {
+    name: "Divinity Comics",
+    merchantLocationStatus: "ENABLED",
+    locationTypes: ["WAREHOUSE"],
+    location: { address: { addressLine1: d.shipFrom.addressLine1, city: d.shipFrom.city, stateOrProvince: d.shipFrom.stateOrProvince, postalCode: d.shipFrom.postalCode, country: d.shipFrom.country } },
+  };
+}
+
+export function registerEbayTools(server: McpServer, ebay: EbayClient, config: Config): void {
+  const defaults = config.ebayListing;
   // ─── Connectivity ──────────────────────────────────────────────────────────
   registerEbayTool(server, ebay, {
     name: "ebay_test_connection",
@@ -157,10 +185,10 @@ export function registerEbayTools(server: McpServer, ebay: EbayClient): void {
   registerEbayTool(server, ebay, {
     name: "ebay_create_offer",
     title: "Create offer",
-    description: "Create an offer for a SKU (POST). `body` is the offer payload (sku, marketplaceId, format, pricingSummary, listingPolicies, categoryId, merchantLocationKey, …). Returns an offerId.",
-    inputSchema: { body: bodySchema.describe("Offer payload."), dryRun: z.boolean().default(true) },
+    description: "Create an offer for a SKU (POST). `body` is the offer payload (sku, pricingSummary, …). Any of marketplaceId, format, categoryId, merchantLocationKey, listingDuration, and listingPolicies (fulfillment/payment/return) you omit are auto-filled from the server's baked-in eBay listing defaults (see ebay_listing_defaults). Returns an offerId.",
+    inputSchema: { body: bodySchema.describe("Offer payload (defaults auto-filled)."), dryRun: z.boolean().default(true) },
     annotations: WRITE,
-    handler: writeHandler("POST", () => "/sell/inventory/v1/offer", (a) => a.body),
+    handler: writeHandler("POST", () => "/sell/inventory/v1/offer", (a) => withOfferDefaults((a.body as Record<string, unknown>) ?? {}, defaults, config.ebayMarketplaceId)),
   });
   registerEbayTool(server, ebay, {
     name: "ebay_update_offer",
@@ -217,10 +245,27 @@ export function registerEbayTools(server: McpServer, ebay: EbayClient): void {
   registerEbayTool(server, ebay, {
     name: "ebay_create_inventory_location",
     title: "Create inventory location",
-    description: "Create an inventory location (POST) under a seller-defined merchantLocationKey. `body` is the location payload (location.address, name, merchantLocationStatus, locationTypes, …).",
-    inputSchema: { merchantLocationKey: z.string().describe("Seller-defined key (path)."), body: bodySchema, dryRun: z.boolean().default(true) },
+    description: "Create an inventory location (POST). Both merchantLocationKey and body default to the server's baked-in ship-from address (see ebay_listing_defaults) when omitted, so a call with no args provisions the seller's default location.",
+    inputSchema: { merchantLocationKey: z.string().optional().describe("Seller-defined key (path); defaults to the configured location key."), body: bodySchema.optional().describe("Location payload; defaults to the configured ship-from address."), dryRun: z.boolean().default(true) },
     annotations: WRITE,
-    handler: writeHandler("POST", (a) => `/sell/inventory/v1/location/${encodeURIComponent(a.merchantLocationKey as string)}`, (a) => a.body),
+    handler: writeHandler(
+      "POST",
+      (a) => `/sell/inventory/v1/location/${encodeURIComponent((a.merchantLocationKey as string) ?? defaults.locationKey)}`,
+      (a) => (a.body as Record<string, unknown>) ?? defaultLocationBody(defaults),
+    ),
+  });
+
+  // ─── Listing defaults (read) ────────────────────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_listing_defaults",
+    title: "Show eBay listing defaults",
+    description: "Return the server's baked-in eBay listing defaults — ship-from location, business policy IDs, and default category/condition/format/duration/title style — that auto-fill create-offer and create-location payloads.",
+    inputSchema: {},
+    annotations: READ,
+    handler: async () => ({
+      markdown: "**Baked-in eBay listing defaults** (env-overridable):\n\n```json\n" + JSON.stringify({ marketplaceId: config.ebayMarketplaceId, ...defaults }, null, 2) + "\n```",
+      structured: { marketplaceId: config.ebayMarketplaceId, defaults },
+    }),
   });
 
   /** Builds a write-tool handler: dryRun echoes the planned call; else executes. */

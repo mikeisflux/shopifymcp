@@ -53,6 +53,33 @@ export interface Config {
   ebayDeletionVerificationToken: string | undefined;
   /** The exact public HTTPS URL registered with eBay for that endpoint; used in the challenge hash and to mount the route. */
   ebayDeletionEndpointUrl: string | undefined;
+  /** Baked-in defaults for building eBay listings (ship-from, policies, comic defaults). */
+  ebayListing: EbayListingDefaults;
+}
+
+/**
+ * Baked-in defaults for building eBay listings, so the seller's ship-from
+ * address, business policies, and preferred listing settings are applied
+ * consistently without re-entering them each time. Every field is env-overridable.
+ */
+export interface EbayListingDefaults {
+  /** merchantLocationKey used for offers + create-location. */
+  locationKey: string;
+  /** Ship-from address (required by eBay inventory locations + calculated shipping). */
+  shipFrom: { addressLine1?: string; city: string; stateOrProvince: string; postalCode: string; country: string };
+  fulfillmentPolicyId?: string;
+  paymentPolicyId?: string;
+  returnPolicyId?: string;
+  /** Default leaf category (259104 = Comics & Graphic Novels). */
+  categoryId?: string;
+  /** Condition enum for inventory items (NEW = Brand New). */
+  condition: string;
+  /** Offer format (AUCTION | FIXED_PRICE). */
+  format: string;
+  /** Auction/fixed listing duration (e.g. DAYS_7, GTC). */
+  listingDuration: string;
+  /** How the agent should build listing titles ("reader" = buyer-friendly from code+series+variant). */
+  titleStyle: string;
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -172,6 +199,27 @@ export function loadConfig(): Config {
     errors.push("  - The eBay account-deletion endpoint needs BOTH EBAY_DELETION_VERIFICATION_TOKEN and EBAY_DELETION_ENDPOINT_URL (or neither).");
   }
 
+  // eBay listing defaults. Baked in for Divinity Comics so listings are built
+  // consistently without re-entering ship-from/policies each time; all env-overridable.
+  const ebayListing: EbayListingDefaults = {
+    locationKey: optional("EBAY_LOCATION_KEY") ?? "DIVINITY_MAIN",
+    shipFrom: {
+      addressLine1: optional("EBAY_SHIP_FROM_ADDRESS1"),
+      city: optional("EBAY_SHIP_FROM_CITY") ?? "Portage",
+      stateOrProvince: optional("EBAY_SHIP_FROM_STATE") ?? "IN",
+      postalCode: optional("EBAY_SHIP_FROM_POSTAL_CODE") ?? "46368",
+      country: optional("EBAY_SHIP_FROM_COUNTRY") ?? "US",
+    },
+    fulfillmentPolicyId: optional("EBAY_FULFILLMENT_POLICY_ID") ?? "112672138015",
+    paymentPolicyId: optional("EBAY_PAYMENT_POLICY_ID") ?? "294948746015",
+    returnPolicyId: optional("EBAY_RETURN_POLICY_ID") ?? "98247945015",
+    categoryId: optional("EBAY_DEFAULT_CATEGORY_ID") ?? "259104",
+    condition: optional("EBAY_DEFAULT_CONDITION") ?? "NEW",
+    format: optional("EBAY_DEFAULT_LISTING_FORMAT") ?? "AUCTION",
+    listingDuration: optional("EBAY_DEFAULT_LISTING_DURATION") ?? "DAYS_7",
+    titleStyle: optional("EBAY_TITLE_STYLE") ?? "reader",
+  };
+
   if (errors.length > 0) {
     throw new Error(
       `Invalid configuration. Fix the following environment variables:\n${errors.join("\n")}`,
@@ -201,5 +249,6 @@ export function loadConfig(): Config {
     ebayOauthRuName,
     ebayDeletionVerificationToken,
     ebayDeletionEndpointUrl,
+    ebayListing,
   };
 }

@@ -190,7 +190,7 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
   // tools default to dryRun). Without a grant the server still runs; the OAuth
   // setup wizard (below) is how you obtain the refresh token.
   if (ebayClient && config.ebayToolsEnabled) {
-    registerEbayTools(server, ebayClient);
+    registerEbayTools(server, ebayClient, config);
   }
 
   return server;
