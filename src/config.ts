@@ -27,6 +27,19 @@ export interface Config {
   enableWrites: boolean;
   port: number;
   logLevel: LogLevel;
+
+  // ─── eBay (optional second backend) ──────────────────────────────────────
+  /** True when eBay client id + secret are configured; gates the eBay tools. */
+  ebayEnabled: boolean;
+  ebayEnv: "production" | "sandbox";
+  ebayClientId: string | undefined;
+  ebayClientSecret: string | undefined;
+  /** Refresh token → user access token (required for Sell APIs). If absent, the client falls back to a client-credentials app token. */
+  ebayRefreshToken: string | undefined;
+  /** Space-separated OAuth scopes used when minting/refreshing the token. */
+  ebayScopes: string | undefined;
+  /** Default marketplace, e.g. EBAY_US, sent as X-EBAY-C-MARKETPLACE-ID. */
+  ebayMarketplaceId: string;
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -113,6 +126,25 @@ export function loadConfig(): Config {
 
   const enableWrites = (process.env.ENABLE_WRITES ?? "false").trim().toLowerCase() === "true";
 
+  // ─── eBay ────────────────────────────────────────────────────────────────
+  const ebayClientId = optional("EBAY_CLIENT_ID");
+  const ebayClientSecret = optional("EBAY_CLIENT_SECRET");
+  const ebayRefreshToken = optional("EBAY_REFRESH_TOKEN");
+  const ebayScopes = optional("EBAY_SCOPES");
+  const ebayMarketplaceId = optional("EBAY_MARKETPLACE_ID") ?? "EBAY_US";
+  const ebayEnvRaw = (optional("EBAY_ENV") ?? "production").toLowerCase();
+  const ebayEnv: "production" | "sandbox" = ebayEnvRaw === "sandbox" ? "sandbox" : "production";
+  const ebayEnabled = Boolean(ebayClientId && ebayClientSecret);
+  if ((ebayClientId || ebayClientSecret) && !ebayEnabled) {
+    errors.push("  - eBay needs BOTH EBAY_CLIENT_ID and EBAY_CLIENT_SECRET (or neither).");
+  }
+  if (ebayEnabled && !ebayRefreshToken && !ebayScopes) {
+    errors.push(
+      "  - eBay Sell APIs need a user token: set EBAY_REFRESH_TOKEN (recommended). Without it, only " +
+        "client-credentials app-token endpoints work, and EBAY_SCOPES is then required.",
+    );
+  }
+
   if (errors.length > 0) {
     throw new Error(
       `Invalid configuration. Fix the following environment variables:\n${errors.join("\n")}`,
@@ -131,5 +163,12 @@ export function loadConfig(): Config {
     enableWrites,
     port,
     logLevel,
+    ebayEnabled,
+    ebayEnv,
+    ebayClientId,
+    ebayClientSecret,
+    ebayRefreshToken,
+    ebayScopes,
+    ebayMarketplaceId,
   };
 }

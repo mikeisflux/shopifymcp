@@ -38,6 +38,8 @@ import { registerAdvancedOrderTools } from "./tools/orders-advanced.js";
 import { registerThemeReadTools, registerThemeWriteTools } from "./tools/themes.js";
 import { registerBulkTools } from "./tools/bulk.js";
 import { registerSplitTools } from "./tools/split.js";
+import { EbayClient } from "./ebay-client.js";
+import { registerEbayTools } from "./tools/ebay.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
@@ -47,7 +49,7 @@ const SERVER_VERSION = "1.0.0";
  * mode a new server + transport is created per request to avoid request-id
  * collisions across concurrent clients.
  */
-function buildServer(config: Config, client: ShopifyClient): McpServer {
+function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClient | undefined): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {} } },
@@ -90,6 +92,12 @@ function buildServer(config: Config, client: ShopifyClient): McpServer {
     registerSplitTools(server, client);
   }
 
+  // eBay tools — registered when eBay credentials are configured (independent of
+  // the Shopify write gate; eBay write tools default to dryRun).
+  if (ebayClient) {
+    registerEbayTools(server, ebayClient);
+  }
+
   return server;
 }
 
@@ -113,6 +121,7 @@ function main(): void {
 
   configureLogger(config.logLevel);
   const client = new ShopifyClient(config);
+  const ebayClient = config.ebayEnabled ? new EbayClient(config) : undefined;
   const app = express();
   app.use(express.json({ limit: "4mb" }));
 
@@ -149,7 +158,7 @@ function main(): void {
   // Stateless JSON: POST carries the JSON-RPC request; a fresh server +
   // transport handle it and are torn down when the response closes.
   app.post(mcpPath, authenticate, async (req: Request, res: Response) => {
-    const server = buildServer(config, client);
+    const server = buildServer(config, client, ebayClient);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       void transport.close();

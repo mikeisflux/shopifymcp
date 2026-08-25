@@ -1,0 +1,247 @@
+/**
+ * eBay tools. `ebay_request` is the universal REST escape hatch — it can call
+ * ANY eBay API method (Sell / Buy / Commerce / Developer / Feed / Trading via
+ * the appropriate path), so every management task the API allows is reachable.
+ * The typed tools cover the full Sell Inventory API listing lifecycle
+ * (create → revise → retrieve → publish → end) for convenience.
+ *
+ * Write tools default dryRun:true (echo the planned call without executing);
+ * reads execute immediately.
+ */
+
+import { z } from "zod";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import { EbayClient, EbayError } from "../ebay-client.js";
+import { logToolCall } from "../logger.js";
+import { textContent } from "../format.js";
+
+type Method = "GET" | "POST" | "PUT" | "DELETE";
+
+interface EbayToolDef<Shape extends z.ZodRawShape> {
+  name: string;
+  title: string;
+  description: string;
+  inputSchema: Shape;
+  annotations: ToolAnnotations;
+  handler: (args: z.objectOutputType<Shape, z.ZodTypeAny>, ebay: EbayClient) => Promise<{ markdown: string; structured: Record<string, unknown> }>;
+}
+
+function registerEbayTool<Shape extends z.ZodRawShape>(server: McpServer, ebay: EbayClient, def: EbayToolDef<Shape>): void {
+  const callback = async (args: z.objectOutputType<Shape, z.ZodTypeAny>) => {
+    const start = Date.now();
+    try {
+      const result = await def.handler(args, ebay);
+      logToolCall({ tool: def.name, durationMs: Date.now() - start, success: true });
+      return { content: [textContent(result.markdown)], structuredContent: result.structured };
+    } catch (err) {
+      const message = err instanceof EbayError || err instanceof Error ? err.message : String(err);
+      logToolCall({ tool: def.name, durationMs: Date.now() - start, success: false, error: message });
+      return { content: [textContent(`Error: ${message}`)], isError: true };
+    }
+  };
+  server.registerTool(
+    def.name,
+    { title: def.title, description: def.description, inputSchema: def.inputSchema, annotations: def.annotations },
+    callback as never,
+  );
+}
+
+const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
+const WRITE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false } as const;
+
+function ok(status: number, data: unknown, extra: Record<string, unknown> = {}): { markdown: string; structured: Record<string, unknown> } {
+  return {
+    markdown: `HTTP ${status}\n\n\`\`\`json\n${JSON.stringify(data ?? {}, null, 2).slice(0, 12000)}\n\`\`\``,
+    structured: { status, data, ...extra },
+  };
+}
+
+const bodySchema = z.record(z.unknown());
+
+export function registerEbayTools(server: McpServer, ebay: EbayClient): void {
+  // ─── Connectivity ──────────────────────────────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_test_connection",
+    title: "Test eBay connection",
+    description: "Mint an eBay OAuth token and make a lightweight Sell Inventory call to confirm auth + connectivity work. Reports the grant type and environment.",
+    inputSchema: {},
+    annotations: READ,
+    handler: async (_args, e) => {
+      const res = await e.request("GET", "/sell/inventory/v1/inventory_item", { query: { limit: 1 } });
+      const total = (res.data as { total?: number } | undefined)?.total;
+      return { markdown: `✅ eBay connection OK (${e.grantType} grant, ${e.apiBase}). Sell Inventory reachable${total !== undefined ? ` — ${total} inventory item(s).` : "."}`, structured: { ok: true, grant: e.grantType, apiBase: e.apiBase, total } };
+    },
+  });
+
+  // ─── Universal escape hatch ─────────────────────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_request",
+    title: "Call any eBay API (REST)",
+    description:
+      "Universal eBay REST call — reaches ANY eBay API endpoint (Sell, Buy, Commerce, Developer, Feed, Account, etc.), so every management task the API allows is possible. Provide the HTTP method and path (e.g. \"/sell/inventory/v1/offer/{offerId}/publish\"), optional query params, and an optional JSON body. GET executes immediately; POST/PUT/DELETE respect dryRun (default true — echoes the planned call without sending).",
+    inputSchema: {
+      method: z.enum(["GET", "POST", "PUT", "DELETE"]).describe("HTTP method."),
+      path: z.string().describe('Path after the host, e.g. "/sell/inventory/v1/inventory_item/ABC".'),
+      query: z.record(z.union([z.string(), z.number()])).optional().describe("Query parameters."),
+      body: bodySchema.optional().describe("JSON request body (for POST/PUT)."),
+      marketplaceId: z.string().optional().describe("Override X-EBAY-C-MARKETPLACE-ID (default from config, e.g. EBAY_US)."),
+      dryRun: z.boolean().default(true).describe("For non-GET methods: if true (default), echo the planned call without executing. Ignored for GET."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    handler: async (args, e) => {
+      const method = args.method as Method;
+      if (method !== "GET" && args.dryRun) {
+        return { markdown: `**DRY RUN** — would ${method} ${args.path}. Not sent.\n\n\`\`\`json\n${JSON.stringify({ query: args.query ?? {}, body: args.body ?? null }, null, 2)}\n\`\`\`\n\n_Re-run with dryRun:false to execute._`, structured: { dryRun: true, method, path: args.path, query: args.query ?? {}, body: args.body ?? null } };
+      }
+      const res = await e.request(method, args.path, { query: args.query, body: args.body, marketplaceId: args.marketplaceId });
+      return ok(res.status, res.data, res.location ? { location: res.location } : {});
+    },
+  });
+
+  // ─── Inventory items (read) ─────────────────────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_get_inventory_item",
+    title: "Get inventory item (by SKU)",
+    description: "Retrieve one inventory item record by SKU (product details, condition, availability).",
+    inputSchema: { sku: z.string().describe("The seller SKU.") },
+    annotations: READ,
+    handler: async (args, e) => ok(...toPair(await e.request("GET", `/sell/inventory/v1/inventory_item/${encodeURIComponent(args.sku)}`))),
+  });
+  registerEbayTool(server, ebay, {
+    name: "ebay_get_inventory_items",
+    title: "List inventory items",
+    description: "Retrieve the seller's inventory item records (paginated).",
+    inputSchema: { limit: z.number().int().min(1).max(200).default(25).describe("Page size."), offset: z.number().int().min(0).default(0).describe("Offset.") },
+    annotations: READ,
+    handler: async (args, e) => ok(...toPair(await e.request("GET", "/sell/inventory/v1/inventory_item", { query: { limit: args.limit, offset: args.offset } }))),
+  });
+
+  // ─── Inventory items (write) ────────────────────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_create_or_replace_inventory_item",
+    title: "Create/replace inventory item",
+    description: "Create or fully replace an inventory item by SKU (PUT). NOTE: this is a full replace — include every field, even unchanged ones. `body` is the inventory item payload (product, condition, availability, …).",
+    inputSchema: { sku: z.string().describe("The seller SKU (path)."), body: bodySchema.describe("Full inventory item payload."), dryRun: z.boolean().default(true) },
+    annotations: WRITE,
+    handler: writeHandler("PUT", (a) => `/sell/inventory/v1/inventory_item/${encodeURIComponent(a.sku as string)}`, (a) => a.body),
+  });
+  registerEbayTool(server, ebay, {
+    name: "ebay_delete_inventory_item",
+    title: "Delete inventory item",
+    description: "Delete an inventory item by SKU — also ends the listing and deletes its offer.",
+    inputSchema: { sku: z.string(), dryRun: z.boolean().default(true) },
+    annotations: WRITE,
+    handler: writeHandler("DELETE", (a) => `/sell/inventory/v1/inventory_item/${encodeURIComponent(a.sku as string)}`),
+  });
+
+  // ─── Offers (read) ──────────────────────────────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_get_offer",
+    title: "Get offer (by offerId)",
+    description: "Retrieve one offer by its offerId.",
+    inputSchema: { offerId: z.string() },
+    annotations: READ,
+    handler: async (args, e) => ok(...toPair(await e.request("GET", `/sell/inventory/v1/offer/${encodeURIComponent(args.offerId)}`))),
+  });
+  registerEbayTool(server, ebay, {
+    name: "ebay_get_offers",
+    title: "Get offers (by SKU)",
+    description: "Retrieve the offers for a SKU (includes offerId, status, and listingId if published).",
+    inputSchema: { sku: z.string(), marketplaceId: z.string().optional(), limit: z.number().int().min(1).max(100).default(25), offset: z.number().int().min(0).default(0) },
+    annotations: READ,
+    handler: async (args, e) => ok(...toPair(await e.request("GET", "/sell/inventory/v1/offer", { query: { sku: args.sku, marketplace_id: args.marketplaceId, limit: args.limit, offset: args.offset } }))),
+  });
+
+  // ─── Offers (write / lifecycle) ─────────────────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_create_offer",
+    title: "Create offer",
+    description: "Create an offer for a SKU (POST). `body` is the offer payload (sku, marketplaceId, format, pricingSummary, listingPolicies, categoryId, merchantLocationKey, …). Returns an offerId.",
+    inputSchema: { body: bodySchema.describe("Offer payload."), dryRun: z.boolean().default(true) },
+    annotations: WRITE,
+    handler: writeHandler("POST", () => "/sell/inventory/v1/offer", (a) => a.body),
+  });
+  registerEbayTool(server, ebay, {
+    name: "ebay_update_offer",
+    title: "Update offer",
+    description: "Update an offer by offerId (PUT — full replace; include all fields). `body` is the full offer payload.",
+    inputSchema: { offerId: z.string(), body: bodySchema, dryRun: z.boolean().default(true) },
+    annotations: WRITE,
+    handler: writeHandler("PUT", (a) => `/sell/inventory/v1/offer/${encodeURIComponent(a.offerId as string)}`, (a) => a.body),
+  });
+  registerEbayTool(server, ebay, {
+    name: "ebay_publish_offer",
+    title: "Publish offer (go live)",
+    description: "Publish an offer by offerId — creates the live eBay listing. Returns the listingId.",
+    inputSchema: { offerId: z.string(), dryRun: z.boolean().default(true) },
+    annotations: WRITE,
+    handler: writeHandler("POST", (a) => `/sell/inventory/v1/offer/${encodeURIComponent(a.offerId as string)}/publish`),
+  });
+  registerEbayTool(server, ebay, {
+    name: "ebay_withdraw_offer",
+    title: "Withdraw offer (end listing, keep offer)",
+    description: "End the listing for an offer (offer goes PUBLISHED → UNPUBLISHED but is retained, so it can be republished later).",
+    inputSchema: { offerId: z.string(), dryRun: z.boolean().default(true) },
+    annotations: WRITE,
+    handler: writeHandler("POST", (a) => `/sell/inventory/v1/offer/${encodeURIComponent(a.offerId as string)}/withdraw`),
+  });
+  registerEbayTool(server, ebay, {
+    name: "ebay_delete_offer",
+    title: "Delete offer",
+    description: "Delete an offer by offerId (ends the listing and removes the offer; the inventory item remains).",
+    inputSchema: { offerId: z.string(), dryRun: z.boolean().default(true) },
+    annotations: WRITE,
+    handler: writeHandler("DELETE", (a) => `/sell/inventory/v1/offer/${encodeURIComponent(a.offerId as string)}`),
+  });
+
+  // ─── Bulk price/quantity ────────────────────────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_bulk_update_price_quantity",
+    title: "Bulk update price/quantity (up to 25)",
+    description: "Update the price and/or quantity of up to 25 SKUs' active listings in one call. `body` is { requests: [{ sku, shipToLocationAvailability?, offers?: [{ offerId, availableQuantity?, price? }] }, … ] }.",
+    inputSchema: { body: bodySchema.describe("bulkUpdatePriceQuantity payload."), dryRun: z.boolean().default(true) },
+    annotations: WRITE,
+    handler: writeHandler("POST", () => "/sell/inventory/v1/bulk_update_price_quantity", (a) => a.body),
+  });
+
+  // ─── Inventory locations ────────────────────────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_get_inventory_locations",
+    title: "List inventory locations",
+    description: "Retrieve the seller's inventory locations (merchant location keys).",
+    inputSchema: { limit: z.number().int().min(1).max(100).default(25), offset: z.number().int().min(0).default(0) },
+    annotations: READ,
+    handler: async (args, e) => ok(...toPair(await e.request("GET", "/sell/inventory/v1/location", { query: { limit: args.limit, offset: args.offset } }))),
+  });
+  registerEbayTool(server, ebay, {
+    name: "ebay_create_inventory_location",
+    title: "Create inventory location",
+    description: "Create an inventory location (POST) under a seller-defined merchantLocationKey. `body` is the location payload (location.address, name, merchantLocationStatus, locationTypes, …).",
+    inputSchema: { merchantLocationKey: z.string().describe("Seller-defined key (path)."), body: bodySchema, dryRun: z.boolean().default(true) },
+    annotations: WRITE,
+    handler: writeHandler("POST", (a) => `/sell/inventory/v1/location/${encodeURIComponent(a.merchantLocationKey as string)}`, (a) => a.body),
+  });
+
+  /** Builds a write-tool handler: dryRun echoes the planned call; else executes. */
+  function writeHandler(
+    method: Method,
+    pathFn: (a: Record<string, unknown>) => string,
+    bodyFn?: (a: Record<string, unknown>) => unknown,
+  ) {
+    return async (args: Record<string, unknown>, e: EbayClient) => {
+      const path = pathFn(args);
+      const body = bodyFn ? bodyFn(args) : undefined;
+      if (args.dryRun !== false) {
+        return { markdown: `**DRY RUN** — would ${method} ${path}. Not sent.${body ? `\n\n\`\`\`json\n${JSON.stringify(body, null, 2).slice(0, 8000)}\n\`\`\`` : ""}\n\n_Re-run with dryRun:false to execute._`, structured: { dryRun: true, method, path, body: body ?? null } };
+      }
+      const res = await e.request(method, path, { body });
+      return ok(res.status, res.data, res.location ? { location: res.location } : {});
+    };
+  }
+}
+
+/** Adapts an EbayResponse into ok()'s (status, data) argument pair. */
+function toPair(res: { status: number; data: unknown }): [number, unknown] {
+  return [res.status, res.data];
+}

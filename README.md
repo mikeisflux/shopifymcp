@@ -124,10 +124,19 @@ cp .env.example .env
 | `PORT` | — | Defaults to `3000`. |
 | `LOG_LEVEL` | — | `debug` \| `info` \| `warn` \| `error`. Defaults to `info`. |
 | `TUNNEL_TOKEN` | — | Cloudflare Tunnel token (used by the `cloudflared` compose service only). |
+| `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET` | optional | App ID (Client ID) + Cert ID (Client secret) from [developer.ebay.com](https://developer.ebay.com). Set **both** to enable the `ebay_*` tools, or **neither** to disable eBay. |
+| `EBAY_REFRESH_TOKEN` | optional | User OAuth refresh token (Sell scopes). Required for the Sell APIs. The server exchanges it for a short-lived user access token and refreshes automatically. Without it, only client-credentials app-token endpoints work. |
+| `EBAY_SCOPES` | optional | Space-separated OAuth scopes. Optional with a refresh token (its granted scopes are used); required when falling back to a client-credentials app token. |
+| `EBAY_MARKETPLACE_ID` | — | Sent as `X-EBAY-C-MARKETPLACE-ID`. Defaults to `EBAY_US`. |
+| `EBAY_ENV` | — | `production` (default) or `sandbox`. Selects `api.ebay.com` vs `api.sandbox.ebay.com`. |
 
 Provide **either** `SHOPIFY_CLIENT_ID` + `SHOPIFY_CLIENT_SECRET` **or** `SHOPIFY_ACCESS_TOKEN`. The
 server validates this at startup and exits with a clear message if credentials are missing or
 malformed.
+
+**eBay is optional.** When `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET` are both set, the `ebay_*` tools
+are registered so this server can also talk to eBay (independent of `ENABLE_WRITES`; eBay write tools
+default to `dryRun`). Leave both blank and eBay stays off entirely.
 
 ---
 
@@ -310,6 +319,27 @@ either form is accepted in input. Long lists are truncated with a note.
 | `shopify_publish_resource` | Publish/unpublish products or a whole collection's products to sales channels (all or specific). Needs `write_publications`. |
 | `shopify_upsert_menu` | Create/update a navigation menu with a recursive item tree (link items to collections/products/URLs). Merge mode avoids replacing the whole menu. Needs `write_online_store_navigation`. |
 | `shopify_update_shipping_package` | Update a saved shipping package (name, type, weight, dimensions, default). Needs a shipping scope; package GID must be supplied (no list query exists in the API). |
+
+### eBay tools (only when `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET` are set)
+
+These talk to eBay's REST APIs rather than Shopify. The write tools default to `dryRun` (echo the
+request without sending it); pass `dryRun:false` to execute. `ebay_request` is the universal escape
+hatch — it can reach **any** eBay REST endpoint (Sell, Buy, Commerce, Account, Marketing, Feed,
+Analytics, …), so any management task the API allows is available even without a typed tool for it.
+
+| Tool | What it does |
+|---|---|
+| `ebay_test_connection` | Mint a token and call a lightweight endpoint to confirm credentials, grant type, and marketplace. |
+| `ebay_request` | **Universal escape hatch:** issue any REST call (`GET`/`POST`/`PUT`/`DELETE`) to any eBay API path, with optional query + JSON body. `GET` executes immediately; writes respect `dryRun` (defaults on). |
+| `ebay_get_inventory_item` / `ebay_get_inventory_items` | Read one inventory item (by SKU) or a paginated page of them (Sell Inventory API). |
+| `ebay_create_or_replace_inventory_item` | Create/replace an inventory item record (SKU, product details, availability). `dryRun` defaults on. |
+| `ebay_delete_inventory_item` | Delete an inventory item by SKU. `dryRun` defaults on. |
+| `ebay_get_offer` / `ebay_get_offers` | Read one offer (by offerId) or all offers for a SKU. |
+| `ebay_create_offer` / `ebay_update_offer` | Create or update an offer (price, quantity, marketplace, listing policies) for a SKU. `dryRun` defaults on. |
+| `ebay_publish_offer` | Publish an offer to make the listing live. `dryRun` defaults on. |
+| `ebay_withdraw_offer` / `ebay_delete_offer` | End a published listing (withdraw) or delete an unpublished offer. `dryRun` defaults on. |
+| `ebay_bulk_update_price_quantity` | Bulk-update price and/or available quantity across many SKUs/offers in one call. `dryRun` defaults on. |
+| `ebay_get_inventory_locations` / `ebay_create_inventory_location` | List merchant/inventory locations, or create one (required before publishing offers). |
 
 ### Errors
 
