@@ -98,16 +98,19 @@ notifications are acknowledged and logged only.</p>
 </body>
 </html>`;
 
-/** Broad default OAuth scope set for the setup wizard when EBAY_SCOPES is unset. */
+/**
+ * Conservative default OAuth scope set for the setup wizard when EBAY_SCOPES is
+ * unset. Deliberately excludes scopes that require extra entitlements and can
+ * make eBay reject the whole authorize request with invalid_request — e.g.
+ * sell.stores (needs an eBay Store subscription) and commerce.identity.readonly.
+ * Add more via EBAY_SCOPES once the core flow works.
+ */
 const EBAY_DEFAULT_OAUTH_SCOPES = [
   "https://api.ebay.com/oauth/api_scope",
   "https://api.ebay.com/oauth/api_scope/sell.inventory",
   "https://api.ebay.com/oauth/api_scope/sell.account",
   "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
   "https://api.ebay.com/oauth/api_scope/sell.marketing",
-  "https://api.ebay.com/oauth/api_scope/sell.finances",
-  "https://api.ebay.com/oauth/api_scope/sell.stores",
-  "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
 ].join(" ");
 
 /** Renders the eBay OAuth wizard result page (success shows the refresh token). */
