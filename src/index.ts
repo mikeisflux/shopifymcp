@@ -8,7 +8,7 @@
  */
 
 import { createServer } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, createHash } from "node:crypto";
 import express, { type Request, type Response, type NextFunction } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -129,6 +129,51 @@ function main(): void {
   app.get("/healthz", (_req: Request, res: Response) => {
     res.status(200).json({ status: "ok", server: SERVER_NAME, version: SERVER_VERSION });
   });
+
+  // eBay Marketplace Account Deletion/Closure notification endpoint — unauthenticated
+  // (eBay calls it directly). Required before a production keyset activates.
+  //   • Validation: eBay sends GET ?challenge_code=… → we return 200 with
+  //     {"challengeResponse": SHA256(challengeCode + verificationToken + endpointUrl)}.
+  //   • Notifications: eBay POSTs account-deletion events → we log and return 200.
+  // The route is mounted at the pathname of the registered endpoint URL so the URL
+  // eBay hashes against always matches the URL it hits.
+  if (config.ebayDeletionVerificationToken && config.ebayDeletionEndpointUrl) {
+    const token = config.ebayDeletionVerificationToken;
+    const endpointUrl = config.ebayDeletionEndpointUrl;
+    let deletionPath = "/ebay/deletion";
+    try {
+      deletionPath = new URL(endpointUrl).pathname || "/ebay/deletion";
+    } catch {
+      log.warn("ebay_deletion_endpoint_url_unparsable", { endpointUrl });
+    }
+
+    app.get(deletionPath, (req: Request, res: Response) => {
+      const challengeCode = typeof req.query.challenge_code === "string" ? req.query.challenge_code : "";
+      if (!challengeCode) {
+        res.status(400).json({ error: "missing challenge_code" });
+        return;
+      }
+      const challengeResponse = createHash("sha256")
+        .update(challengeCode)
+        .update(token)
+        .update(endpointUrl)
+        .digest("hex");
+      res.status(200).json({ challengeResponse });
+    });
+
+    app.post(deletionPath, (req: Request, res: Response) => {
+      const notification = (req.body ?? {}) as { metadata?: { topic?: string }; notification?: { data?: { username?: string } } };
+      log.info("ebay_account_deletion_notification", {
+        topic: notification.metadata?.topic,
+        username: notification.notification?.data?.username,
+      });
+      // We store no eBay marketplace-user PII (single-seller tool using owner creds),
+      // so there is nothing to purge. Acknowledge so eBay stops retrying.
+      res.status(200).end();
+    });
+
+    log.info("ebay_deletion_endpoint_registered", { path: deletionPath });
+  }
 
   const mcpPath = `/mcp/:secret`;
 

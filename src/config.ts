@@ -40,6 +40,15 @@ export interface Config {
   ebayScopes: string | undefined;
   /** Default marketplace, e.g. EBAY_US, sent as X-EBAY-C-MARKETPLACE-ID. */
   ebayMarketplaceId: string;
+  /**
+   * eBay Marketplace Account Deletion/Closure: the verification token you enter
+   * in eBay's Alerts & Notifications form (32–80 chars, [A-Za-z0-9_-]). Enables
+   * the unauthenticated challenge/notification endpoint that eBay requires before
+   * a production keyset activates.
+   */
+  ebayDeletionVerificationToken: string | undefined;
+  /** The exact public HTTPS URL registered with eBay for that endpoint; used in the challenge hash and to mount the route. */
+  ebayDeletionEndpointUrl: string | undefined;
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -145,6 +154,20 @@ export function loadConfig(): Config {
     );
   }
 
+  // eBay Marketplace Account Deletion/Closure notification endpoint. Independent
+  // of the tools — eBay requires it (or an exemption) to activate a production keyset.
+  const ebayDeletionVerificationToken = optional("EBAY_DELETION_VERIFICATION_TOKEN");
+  const ebayDeletionEndpointUrl = optional("EBAY_DELETION_ENDPOINT_URL");
+  if (ebayDeletionVerificationToken && !/^[A-Za-z0-9_-]{32,80}$/.test(ebayDeletionVerificationToken)) {
+    errors.push("  - EBAY_DELETION_VERIFICATION_TOKEN must be 32–80 chars of letters, digits, _ or - (eBay's rule).");
+  }
+  if (ebayDeletionEndpointUrl && !/^https:\/\/.+/i.test(ebayDeletionEndpointUrl)) {
+    errors.push("  - EBAY_DELETION_ENDPOINT_URL must be a full https:// URL (the exact one you register with eBay).");
+  }
+  if (Boolean(ebayDeletionVerificationToken) !== Boolean(ebayDeletionEndpointUrl)) {
+    errors.push("  - The eBay account-deletion endpoint needs BOTH EBAY_DELETION_VERIFICATION_TOKEN and EBAY_DELETION_ENDPOINT_URL (or neither).");
+  }
+
   if (errors.length > 0) {
     throw new Error(
       `Invalid configuration. Fix the following environment variables:\n${errors.join("\n")}`,
@@ -170,5 +193,7 @@ export function loadConfig(): Config {
     ebayRefreshToken,
     ebayScopes,
     ebayMarketplaceId,
+    ebayDeletionVerificationToken,
+    ebayDeletionEndpointUrl,
   };
 }

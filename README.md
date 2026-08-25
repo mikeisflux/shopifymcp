@@ -129,6 +129,7 @@ cp .env.example .env
 | `EBAY_SCOPES` | optional | Space-separated OAuth scopes. Optional with a refresh token (its granted scopes are used); required when falling back to a client-credentials app token. |
 | `EBAY_MARKETPLACE_ID` | — | Sent as `X-EBAY-C-MARKETPLACE-ID`. Defaults to `EBAY_US`. |
 | `EBAY_ENV` | — | `production` (default) or `sandbox`. Selects `api.ebay.com` vs `api.sandbox.ebay.com`. |
+| `EBAY_DELETION_VERIFICATION_TOKEN` + `EBAY_DELETION_ENDPOINT_URL` | optional | Enable the eBay **Marketplace Account Deletion** notification endpoint that eBay requires before a production keyset activates. Set **both** (see below). |
 
 Provide **either** `SHOPIFY_CLIENT_ID` + `SHOPIFY_CLIENT_SECRET` **or** `SHOPIFY_ACCESS_TOKEN`. The
 server validates this at startup and exits with a clear message if credentials are missing or
@@ -137,6 +138,35 @@ malformed.
 **eBay is optional.** When `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET` are both set, the `ebay_*` tools
 are registered so this server can also talk to eBay (independent of `ENABLE_WRITES`; eBay write tools
 default to `dryRun`). Leave both blank and eBay stays off entirely.
+
+#### Activating an eBay production keyset (Marketplace Account Deletion endpoint)
+
+eBay will **not activate a production keyset** until you satisfy its **Marketplace Account
+Deletion/Closure** requirement (Developer Portal → your app → **Alerts & Notifications** →
+**Marketplace Account Deletion** radio — *not* "Platform Notifications", which is a separate optional
+feature). You either stand up an endpoint that answers eBay's challenge, or request an exemption.
+
+This server includes that endpoint. To use it:
+
+1. **Invent a verification token** — 32–80 chars, letters/digits/`_`/`-` only. Generate one with
+   `openssl rand -hex 24`.
+2. In `.env`, set:
+   - `EBAY_DELETION_VERIFICATION_TOKEN` = that token
+   - `EBAY_DELETION_ENDPOINT_URL` = your public HTTPS base + `/ebay/deletion`
+     (e.g. `https://your-tunnel-host/ebay/deletion`). The URL is part of the challenge hash, so it
+     must match **exactly** what you register with eBay.
+3. Restart the container.
+4. In eBay's **Marketplace Account Deletion** form, enter the same URL and the same verification
+   token, then **Save** (or **Send Test Notification**). eBay `GET`s the endpoint with a
+   `challenge_code`; the server replies with `SHA-256(challengeCode + verificationToken + endpointUrl)`
+   and eBay marks it verified.
+
+The endpoint is unauthenticated (eBay calls it directly, like `/healthz`) and lives outside the
+secret MCP path. It acknowledges deletion `POST`s with `200` and logs them; the server stores no eBay
+marketplace-user data, so there is nothing to purge.
+
+> Alternatively, if you don't want to run the endpoint, you can toggle **"Exempted from Marketplace
+> Account Deletion"** in the same eBay form — but the endpoint above is the reliable, self-contained path.
 
 ---
 
