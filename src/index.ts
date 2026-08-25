@@ -244,8 +244,16 @@ function main(): void {
     });
 
     app.get("/ebay/oauth/return", async (req: Request, res: Response) => {
-      const code = typeof req.query.code === "string" ? req.query.code : "";
-      const err = typeof req.query.error === "string" ? req.query.error : "";
+      // Read code/error from the RAW query string, not req.query: eBay auth codes
+      // contain base64 chars (+, /, =) and '#'. Express's parser turns '+' into a
+      // space, corrupting the code. decodeURIComponent preserves '+' correctly.
+      const rawUrl = req.originalUrl || req.url || "";
+      const grab = (name: string): string => {
+        const m = new RegExp(`[?&]${name}=([^&]*)`).exec(rawUrl);
+        return m ? decodeURIComponent(m[1]!) : "";
+      };
+      const code = grab("code");
+      const err = grab("error");
       if (err) {
         const desc = typeof req.query.error_description === "string" ? req.query.error_description : "";
         res.status(400).type("html").send(oauthResultPage("eBay authorization was declined or failed", `${err}${desc ? `: ${desc}` : ""}`, null));
