@@ -98,6 +98,42 @@ notifications are acknowledged and logged only.</p>
 </body>
 </html>`;
 
+/** Broad default OAuth scope set for the setup wizard when EBAY_SCOPES is unset. */
+const EBAY_DEFAULT_OAUTH_SCOPES = [
+  "https://api.ebay.com/oauth/api_scope",
+  "https://api.ebay.com/oauth/api_scope/sell.inventory",
+  "https://api.ebay.com/oauth/api_scope/sell.account",
+  "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
+  "https://api.ebay.com/oauth/api_scope/sell.marketing",
+  "https://api.ebay.com/oauth/api_scope/sell.finances",
+  "https://api.ebay.com/oauth/api_scope/sell.stores",
+  "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
+].join(" ");
+
+/** Renders the eBay OAuth wizard result page (success shows the refresh token). */
+function oauthResultPage(heading: string, detail: string | null, refreshToken: string | null, expiresInSec?: number): string {
+  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+  const expiryNote = expiresInSec ? `<p class="muted">Valid for about ${Math.round(expiresInSec / 86400)} days. When it expires, revisit <code>/ebay/oauth/start</code> to mint a new one.</p>` : "";
+  const body = refreshToken
+    ? `<p>Copy this into <code>.env</code> as <code>EBAY_REFRESH_TOKEN</code>, then <code>docker compose up -d</code>:</p>
+       <pre class="token">EBAY_REFRESH_TOKEN=${esc(refreshToken)}</pre>
+       ${expiryNote}
+       <p class="warn">Treat this like a password — it grants access to your eBay account. Don't share it. You can revoke it anytime from eBay's User Tokens page.</p>`
+    : `<p>${esc(detail ?? "")}</p>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>eBay OAuth Setup</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.6; max-width: 760px; margin: 2.5rem auto; padding: 0 1.25rem; color: #1a1a1a; }
+  h1 { font-size: 1.5rem; } code { background: #f2f2f2; padding: 0.1em 0.35em; border-radius: 4px; }
+  pre.token { background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font-size: 0.85rem; }
+  .muted { color: #666; font-size: 0.9rem; } .warn { color: #a15c00; font-size: 0.9rem; }
+</style></head><body>
+<h1>${esc(heading)}</h1>
+${body}
+</body></html>`;
+}
+
 /**
  * Builds a fresh MCP server with all applicable tools registered. In stateless
  * mode a new server + transport is created per request to avoid request-id
@@ -146,9 +182,11 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
     registerSplitTools(server, client);
   }
 
-  // eBay tools — registered when eBay credentials are configured (independent of
-  // the Shopify write gate; eBay write tools default to dryRun).
-  if (ebayClient) {
+  // eBay tools — registered when eBay creds AND a usable grant (refresh token or
+  // scopes) are configured (independent of the Shopify write gate; eBay write
+  // tools default to dryRun). Without a grant the server still runs; the OAuth
+  // setup wizard (below) is how you obtain the refresh token.
+  if (ebayClient && config.ebayToolsEnabled) {
     registerEbayTools(server, ebayClient);
   }
 
@@ -189,6 +227,50 @@ function main(): void {
   app.get("/privacy", (_req: Request, res: Response) => {
     res.status(200).type("html").send(PRIVACY_POLICY_HTML);
   });
+
+  // eBay OAuth setup wizard — obtains a long-lived refresh token via the
+  // authorization-code flow, which eBay's portal "test token" tool does not hand
+  // out. Enabled when eBay client creds + a RuName are configured. Unauthenticated
+  // (the flow's security is the eBay login + the single-use, short-lived code).
+  //   /ebay/oauth/start  -> 302 to eBay consent
+  //   /ebay/oauth/return -> eBay redirects here with ?code=…; we exchange + show
+  //                         the refresh token. (Set the RuName's accepted URL to this.)
+  if (ebayClient && config.ebayOauthRuName) {
+    const runame = config.ebayOauthRuName;
+    const scopes = config.ebayScopes ?? EBAY_DEFAULT_OAUTH_SCOPES;
+
+    app.get("/ebay/oauth/start", (_req: Request, res: Response) => {
+      res.redirect(ebayClient.buildAuthorizeUrl(runame, scopes));
+    });
+
+    app.get("/ebay/oauth/return", async (req: Request, res: Response) => {
+      const code = typeof req.query.code === "string" ? req.query.code : "";
+      const err = typeof req.query.error === "string" ? req.query.error : "";
+      if (err) {
+        const desc = typeof req.query.error_description === "string" ? req.query.error_description : "";
+        res.status(400).type("html").send(oauthResultPage("eBay authorization was declined or failed", `${err}${desc ? `: ${desc}` : ""}`, null));
+        return;
+      }
+      if (!code) {
+        res.status(400).type("html").send(oauthResultPage("Missing authorization code", "This page is the eBay OAuth redirect target. Start the flow at /ebay/oauth/start.", null));
+        return;
+      }
+      try {
+        const tok = await ebayClient.exchangeAuthCode(code, runame);
+        if (!tok.refresh_token) {
+          res.status(502).type("html").send(oauthResultPage("No refresh token returned", "eBay accepted the code but did not return a refresh_token. Ensure the RuName is OAuth-enabled and try again.", null));
+          return;
+        }
+        log.info("ebay_oauth_refresh_token_minted", { refresh_token_expires_in: tok.refresh_token_expires_in });
+        res.status(200).type("html").send(oauthResultPage("Refresh token obtained ✓", null, tok.refresh_token, tok.refresh_token_expires_in));
+      } catch (e) {
+        log.error("ebay_oauth_exchange_failed", { error: e instanceof Error ? e.message : String(e) });
+        res.status(500).type("html").send(oauthResultPage("Token exchange failed", e instanceof Error ? e.message : String(e), null));
+      }
+    });
+
+    log.info("ebay_oauth_wizard_registered", { start: "/ebay/oauth/start" });
+  }
 
   // eBay Marketplace Account Deletion/Closure notification endpoint — unauthenticated
   // (eBay calls it directly). Required before a production keyset activates.

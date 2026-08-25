@@ -52,6 +52,8 @@ export class EbayClient {
   private readonly config: Config;
   readonly apiBase: string;
   private readonly tokenEndpoint: string;
+  /** OAuth sign-in host (auth.ebay.com / auth.sandbox.ebay.com) for the authorize URL. */
+  private readonly signinBase: string;
 
   private cachedToken: string | undefined;
   private tokenExpiresAtMs = 0;
@@ -62,6 +64,58 @@ export class EbayClient {
     const host = config.ebayEnv === "sandbox" ? "api.sandbox.ebay.com" : "api.ebay.com";
     this.apiBase = `https://${host}`;
     this.tokenEndpoint = `https://${host}/identity/v1/oauth2/token`;
+    this.signinBase = config.ebayEnv === "sandbox" ? "https://auth.sandbox.ebay.com" : "https://auth.ebay.com";
+  }
+
+  /**
+   * Builds the OAuth authorization-code URL a user visits to grant consent.
+   * `redirectUri` is the RuName; after consent eBay redirects to the RuName's
+   * configured accepted URL with `?code=…`.
+   */
+  buildAuthorizeUrl(redirectUri: string, scopes: string): string {
+    const u = new URL(this.signinBase + "/oauth2/authorize");
+    u.searchParams.set("client_id", this.config.ebayClientId ?? "");
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("redirect_uri", redirectUri);
+    u.searchParams.set("scope", scopes);
+    u.searchParams.set("prompt", "login");
+    return u.toString();
+  }
+
+  /**
+   * Exchanges an authorization code (from the consent redirect) for tokens.
+   * The response includes the long-lived `refresh_token` we actually want.
+   * `redirectUri` must be the same RuName used in the authorize URL.
+   */
+  async exchangeAuthCode(
+    code: string,
+    redirectUri: string,
+  ): Promise<{ access_token: string; refresh_token?: string; refresh_token_expires_in?: number; expires_in?: number; token_type?: string }> {
+    const basic = Buffer.from(`${this.config.ebayClientId}:${this.config.ebayClientSecret}`).toString("base64");
+    const body = new URLSearchParams();
+    body.set("grant_type", "authorization_code");
+    body.set("code", code);
+    body.set("redirect_uri", redirectUri);
+
+    let res: Response;
+    try {
+      res = await fetch(this.tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${basic}`, Accept: "application/json" },
+        body: body.toString(),
+      });
+    } catch (err) {
+      throw new EbayError(`Network error exchanging eBay auth code: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const text = await res.text().catch(() => "");
+    if (!res.ok) {
+      let hint = "";
+      if (/invalid_grant/i.test(text)) hint = " The authorization code is invalid, already used, or expired (codes last ~5 min) — start the flow again at /ebay/oauth/start.";
+      else if (/invalid_client/i.test(text)) hint = " Check EBAY_CLIENT_ID / EBAY_CLIENT_SECRET.";
+      else if (/redirect_uri/i.test(text)) hint = " The redirect_uri must equal the RuName (EBAY_OAUTH_RUNAME) used to start the flow.";
+      throw new EbayError(`eBay auth-code exchange failed (HTTP ${res.status}).${hint} ${text.slice(0, 300)}`.trim(), res.status);
+    }
+    return (text ? JSON.parse(text) : {}) as { access_token: string; refresh_token?: string; refresh_token_expires_in?: number; expires_in?: number; token_type?: string };
   }
 
   /** The grant flow in use, for diagnostics. */

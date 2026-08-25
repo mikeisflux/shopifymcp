@@ -40,6 +40,10 @@ export interface Config {
   ebayScopes: string | undefined;
   /** Default marketplace, e.g. EBAY_US, sent as X-EBAY-C-MARKETPLACE-ID. */
   ebayMarketplaceId: string;
+  /** True when the eBay tools should be registered (client creds + a usable grant: refresh token or scopes). */
+  ebayToolsEnabled: boolean;
+  /** eBay OAuth RuName (redirect_uri value) for the built-in refresh-token setup wizard at /ebay/oauth/start. */
+  ebayOauthRuName: string | undefined;
   /**
    * eBay Marketplace Account Deletion/Closure: the verification token you enter
    * in eBay's Alerts & Notifications form (32–80 chars, [A-Za-z0-9_-]). Enables
@@ -143,16 +147,16 @@ export function loadConfig(): Config {
   const ebayMarketplaceId = optional("EBAY_MARKETPLACE_ID") ?? "EBAY_US";
   const ebayEnvRaw = (optional("EBAY_ENV") ?? "production").toLowerCase();
   const ebayEnv: "production" | "sandbox" = ebayEnvRaw === "sandbox" ? "sandbox" : "production";
+  const ebayOauthRuName = optional("EBAY_OAUTH_RUNAME");
   const ebayEnabled = Boolean(ebayClientId && ebayClientSecret);
   if ((ebayClientId || ebayClientSecret) && !ebayEnabled) {
     errors.push("  - eBay needs BOTH EBAY_CLIENT_ID and EBAY_CLIENT_SECRET (or neither).");
   }
-  if (ebayEnabled && !ebayRefreshToken && !ebayScopes) {
-    errors.push(
-      "  - eBay Sell APIs need a user token: set EBAY_REFRESH_TOKEN (recommended). Without it, only " +
-        "client-credentials app-token endpoints work, and EBAY_SCOPES is then required.",
-    );
-  }
+  // The tools need a usable grant (a user refresh token, or scopes for an app
+  // token). Lacking one is NOT fatal: the server still boots (so the Shopify
+  // tools and the OAuth setup wizard keep working) — the eBay tools just stay
+  // unregistered until a refresh token is supplied.
+  const ebayToolsEnabled = ebayEnabled && Boolean(ebayRefreshToken || ebayScopes);
 
   // eBay Marketplace Account Deletion/Closure notification endpoint. Independent
   // of the tools — eBay requires it (or an exemption) to activate a production keyset.
@@ -193,6 +197,8 @@ export function loadConfig(): Config {
     ebayRefreshToken,
     ebayScopes,
     ebayMarketplaceId,
+    ebayToolsEnabled,
+    ebayOauthRuName,
     ebayDeletionVerificationToken,
     ebayDeletionEndpointUrl,
   };
