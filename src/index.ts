@@ -40,6 +40,7 @@ import { registerBulkTools } from "./tools/bulk.js";
 import { registerSplitTools } from "./tools/split.js";
 import { EbayClient } from "./ebay-client.js";
 import { registerEbayTools } from "./tools/ebay.js";
+import { registerEbayBulkTools } from "./tools/ebay-bulk.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
@@ -191,6 +192,9 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
   // setup wizard (below) is how you obtain the refresh token.
   if (ebayClient && config.ebayToolsEnabled) {
     registerEbayTools(server, ebayClient, config);
+    // Cross-service bulk lister (Shopify collection → eBay auctions). Gated behind
+    // the Shopify write flag since it publishes live listings.
+    if (config.enableWrites) registerEbayBulkTools(server, client, ebayClient, config);
   }
 
   return server;
