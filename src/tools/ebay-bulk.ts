@@ -58,8 +58,15 @@ function parseTitle(raw: string): { code: string; descriptor: string } {
 }
 
 function buildTitle(template: string, vars: Record<string, string>): string {
-  const filled = template.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? "").replace(/\s+/g, " ").trim();
+  let filled = template.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? "");
+  // Tidy up when an optional placeholder (e.g. {artist}) was empty.
+  filled = filled.replace(/\(\s*\)/g, "").replace(/\s*-\s*$/, "").replace(/\s+/g, " ").trim();
   return filled.length > 80 ? filled.slice(0, 80).trim() : filled;
+}
+
+/** Best-effort artist name from tags: a multi-word tag that isn't a system/collection tag. */
+function pickArtist(tags: string[]): string {
+  return tags.find((t) => /\s/.test(t) && !/-books$/i.test(t) && !/-ebaylive$/i.test(t) && t.toLowerCase() !== "ebaylive") ?? "";
 }
 
 /** Strip the CDN query string — eBay's image fetcher fails on Shopify's `?v=…`. */
@@ -84,7 +91,7 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
       inputSchema: {
         collectionId: z.string().describe("Shopify collection (numeric id or GID) to list from, e.g. book-deadsexy-1-ebaylive."),
         seriesLabel: z.string().describe("Human series name used in titles + Series Title aspect, e.g. \"Dead Sexy #1\"."),
-        titleTemplate: z.string().default("{series} {descriptor} Variant Cover - {vendor}").describe("Title template; placeholders {series} {descriptor} {code} {vendor} {sku}. Truncated to eBay's 80-char limit."),
+        titleTemplate: z.string().default("{series} {descriptor} Variant Cover - {vendor} ({artist})").describe("Title template; placeholders {series} {descriptor} {code} {vendor} {sku} {artist}. Empty ()/trailing - are cleaned up. Truncated to eBay's 80-char limit."),
         weightLb: z.number().positive().default(0.5).describe("Package weight in pounds for calculated shipping."),
         maxProducts: z.number().int().min(1).max(300).default(50).describe("How many products to process this call. Use a high value for dryRun preview; smaller (≤50) for live runs, then continue with nextCursor."),
         cursor: z.string().optional().describe("Opaque product cursor from a previous call's nextCursor, to continue."),
@@ -98,7 +105,7 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
       maxProducts: number; cursor?: string; skipExisting: boolean; dryRun: boolean;
     }) => {
       const start = Date.now();
-      const listed: Array<{ sku: string; itemId: string; title: string; startPrice: string }> = [];
+      const listed: Array<{ sku: string; itemId: string; title: string; startPrice: string; imageHosted: boolean }> = [];
       const preview: Array<{ sku: string; title: string; startPrice: string; imageUrl: string }> = [];
       const skipped: Array<{ sku: string; reason: string }> = [];
       const failed: Array<{ sku: string; title: string; error: string }> = [];
@@ -124,7 +131,8 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
           const price = variant?.price ?? "";
           const { code, descriptor } = parseTitle(p.title);
           const vendor = p.vendor ?? "Divinity Comics";
-          const title = buildTitle(args.titleTemplate, { series: args.seriesLabel, descriptor, code, vendor, sku });
+          const artist = pickArtist(p.tags);
+          const title = buildTitle(args.titleTemplate, { series: args.seriesLabel, descriptor, code, vendor, sku, artist });
           const rawImg = p.featuredImage?.url ?? "";
           const imageUrl = rawImg ? cleanImageUrl(rawImg) : "";
 
@@ -141,12 +149,22 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
               if (offers && offers.length) { skipped.push({ sku, reason: "eBay offer already exists" }); continue; }
             }
 
+            // Copy the image to eBay-hosted storage so it shows on eBay Live (not
+            // just the standard listing) with no manual crop. Fall back to the raw
+            // URL if hosting fails (listing still valid on standard eBay).
+            let listingImage = imageUrl;
+            let imageHosted = false;
+            try {
+              listingImage = await ebay.uploadHostedPicture(imageUrl, sku);
+              imageHosted = true;
+            } catch { /* keep raw URL; recorded below */ }
+
             await ebay.request("PUT", `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
               body: {
                 product: {
                   title,
                   description: `${title}. Published by ${vendor}. Brand new, unread, ungraded — shipped bagged & boarded.`,
-                  imageUrls: [imageUrl],
+                  imageUrls: [listingImage],
                   aspects: { "Series Title": [args.seriesLabel], Publisher: [vendor], Type: ["Comic Book"], Language: ["English"] },
                 },
                 condition: "NEW",
@@ -176,7 +194,7 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
 
             const pub = await ebay.request("POST", `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/publish`, {});
             const itemId = (pub.data as { listingId?: string }).listingId ?? "";
-            listed.push({ sku, itemId, title, startPrice: price });
+            listed.push({ sku, itemId, title, startPrice: price, imageHosted });
             await sleep(150);
           } catch (err) {
             failed.push({ sku, title, error: err instanceof Error ? err.message : String(err) });

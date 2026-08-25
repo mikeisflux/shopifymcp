@@ -268,6 +268,19 @@ export function registerEbayTools(server: McpServer, ebay: EbayClient, config: C
     }),
   });
 
+  // ─── Picture hosting (Trading API) ──────────────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_upload_hosted_image",
+    title: "Upload image to eBay-hosted storage",
+    description: "Copy an externally-hosted image (e.g. a Shopify CDN URL) to eBay Picture Services via UploadSiteHostedPictures, returning the eBay-hosted (i.ebayimg.com) URL. Use that URL in listing imageUrls so images display on eBay Live (not just the standard listing) without a manual crop.",
+    inputSchema: { imageUrl: z.string().url().describe("Public https image URL to copy to eBay (strip any CDN query string first)."), name: z.string().optional().describe("Optional picture name.") },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    handler: async (args, e) => {
+      const hosted = await e.uploadHostedPicture(args.imageUrl, args.name ?? "image");
+      return { markdown: `eBay-hosted URL:\n\n${hosted}`, structured: { hostedUrl: hosted, source: args.imageUrl } };
+    },
+  });
+
   /** Builds a write-tool handler: dryRun echoes the planned call; else executes. */
   function writeHandler(
     method: Method,

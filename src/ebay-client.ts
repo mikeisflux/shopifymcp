@@ -54,6 +54,8 @@ export class EbayClient {
   private readonly tokenEndpoint: string;
   /** OAuth sign-in host (auth.ebay.com / auth.sandbox.ebay.com) for the authorize URL. */
   private readonly signinBase: string;
+  /** Trading API (legacy XML) endpoint — used for UploadSiteHostedPictures. */
+  private readonly tradingEndpoint: string;
 
   private cachedToken: string | undefined;
   private tokenExpiresAtMs = 0;
@@ -65,6 +67,51 @@ export class EbayClient {
     this.apiBase = `https://${host}`;
     this.tokenEndpoint = `https://${host}/identity/v1/oauth2/token`;
     this.signinBase = config.ebayEnv === "sandbox" ? "https://auth.sandbox.ebay.com" : "https://auth.ebay.com";
+    this.tradingEndpoint = `https://${host}/ws/api.dll`;
+  }
+
+  /**
+   * Uploads a picture to eBay Picture Services (EPS) via the Trading API's
+   * UploadSiteHostedPictures, using an ExternalPictureURL that eBay fetches and
+   * copies to its own servers. Returns the eBay-hosted (i.ebayimg.com) URL.
+   *
+   * Why: the Sell Inventory API's imageUrls displays on the standard listing but
+   * doesn't reliably copy the image to eBay-hosted storage, so it never appears
+   * in eBay Live. An eBay-hosted URL shows everywhere with no manual crop.
+   */
+  async uploadHostedPicture(externalUrl: string, name = "image"): Promise<string> {
+    const token = await this.getToken();
+    const esc = (s: string) => s.replace(/[<>&'"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c] as string));
+    const xml =
+      `<?xml version="1.0" encoding="utf-8"?>` +
+      `<UploadSiteHostedPicturesRequest xmlns="urn:ebay:apis:eBLBaseComponents">` +
+      `<PictureName>${esc(name).slice(0, 80)}</PictureName>` +
+      `<ExternalPictureURL>${esc(externalUrl)}</ExternalPictureURL>` +
+      `</UploadSiteHostedPicturesRequest>`;
+
+    let res: Response;
+    try {
+      res = await fetch(this.tradingEndpoint, {
+        method: "POST",
+        headers: {
+          "X-EBAY-API-CALL-NAME": "UploadSiteHostedPictures",
+          "X-EBAY-API-COMPATIBILITY-LEVEL": "1191",
+          "X-EBAY-API-SITEID": "0",
+          "X-EBAY-API-IAF-TOKEN": token,
+          "Content-Type": "text/xml",
+        },
+        body: xml,
+      });
+    } catch (err) {
+      throw new EbayError(`Network error uploading picture to eBay: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const text = await res.text().catch(() => "");
+    const full = /<FullURL>([^<]+)<\/FullURL>/.exec(text)?.[1];
+    if (full) return full;
+    const ack = /<Ack>([^<]+)<\/Ack>/.exec(text)?.[1] ?? "?";
+    const shortMsg = /<ShortMessage>([^<]+)<\/ShortMessage>/.exec(text)?.[1] ?? "";
+    const longMsg = /<LongMessage>([^<]+)<\/LongMessage>/.exec(text)?.[1] ?? "";
+    throw new EbayError(`eBay UploadSiteHostedPictures failed (HTTP ${res.status}, Ack=${ack}): ${(shortMsg + " " + longMsg).trim() || text.slice(0, 300)}`, res.status);
   }
 
   /**
