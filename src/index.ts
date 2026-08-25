@@ -45,6 +45,60 @@ const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
 
 /**
+ * Minimal privacy policy served at /privacy. Required as a public https URL by
+ * some OAuth app registrations (e.g. eBay's Redirect URL / RuName setup).
+ * Edit the contact email below to your preferred address.
+ */
+const PRIVACY_CONTACT_EMAIL = "divinitycomicsinc@gmail.com";
+const PRIVACY_POLICY_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Privacy Policy — Divinity Comics Integration</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.6; max-width: 720px; margin: 2.5rem auto; padding: 0 1.25rem; color: #1a1a1a; }
+  h1 { font-size: 1.6rem; } h2 { font-size: 1.15rem; margin-top: 1.75rem; }
+  code { background: #f2f2f2; padding: 0.1em 0.35em; border-radius: 4px; }
+  footer { margin-top: 2.5rem; font-size: 0.85rem; color: #666; }
+</style>
+</head>
+<body>
+<h1>Privacy Policy</h1>
+<p>This application is a private, single-operator integration used by Divinity Comics to
+manage its own e-commerce accounts (Shopify and eBay). It is not offered to third parties
+and does not create accounts for, or collect data from, the general public.</p>
+
+<h2>What data is accessed</h2>
+<p>The application accesses data belonging to the operator's own connected merchant
+accounts through official APIs — for example product, inventory, listing, order, and
+account-settings data. Access is authorized by the account owner via API credentials and
+OAuth tokens that the owner supplies.</p>
+
+<h2>How data is used</h2>
+<p>Data is used solely to perform store-management operations the operator initiates
+(reading and updating catalog, inventory, pricing, listings, and orders). It is not sold,
+rented, or shared with any third party, and it is not used for advertising or profiling.</p>
+
+<h2>Data storage and retention</h2>
+<p>The application is stateless: it reads and writes data on demand through the platform
+APIs and does not maintain its own database of marketplace-user personal information.
+Credentials are held only as server configuration on infrastructure the operator controls.</p>
+
+<h2>Account deletion / closure</h2>
+<p>Because the application stores no marketplace-user personal data, there is no retained
+personal data to delete when an account-closure notification is received; such
+notifications are acknowledged and logged only.</p>
+
+<h2>Contact</h2>
+<p>Questions about this policy can be directed to
+<a href="mailto:${PRIVACY_CONTACT_EMAIL}">${PRIVACY_CONTACT_EMAIL}</a>.</p>
+
+<footer>Divinity Comics — private store-management integration.</footer>
+</body>
+</html>`;
+
+/**
  * Builds a fresh MCP server with all applicable tools registered. In stateless
  * mode a new server + transport is created per request to avoid request-id
  * collisions across concurrent clients.
@@ -128,6 +182,12 @@ function main(): void {
   // Health check — unauthenticated, no store info leaked.
   app.get("/healthz", (_req: Request, res: Response) => {
     res.status(200).json({ status: "ok", server: SERVER_NAME, version: SERVER_VERSION });
+  });
+
+  // Privacy policy — unauthenticated static page. Some integrations (e.g. eBay's
+  // OAuth Redirect URL / RuName setup) require a public https privacy-policy URL.
+  app.get("/privacy", (_req: Request, res: Response) => {
+    res.status(200).type("html").send(PRIVACY_POLICY_HTML);
   });
 
   // eBay Marketplace Account Deletion/Closure notification endpoint — unauthenticated
