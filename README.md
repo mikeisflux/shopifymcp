@@ -370,6 +370,28 @@ Analytics, …), so any management task the API allows is available even without
 | `ebay_withdraw_offer` / `ebay_delete_offer` | End a published listing (withdraw) or delete an unpublished offer. `dryRun` defaults on. |
 | `ebay_bulk_update_price_quantity` | Bulk-update price and/or available quantity across many SKUs/offers in one call. `dryRun` defaults on. |
 | `ebay_get_inventory_locations` / `ebay_create_inventory_location` | List merchant/inventory locations, or create one (required before publishing offers). |
+| `ebay_upload_hosted_image` | Copy an external image (Shopify CDN URL) to eBay Picture Services (`i.ebayimg.com`) so it shows on **eBay Live**, not just the standard listing. |
+| `ebay_bulk_list_auctions` | **Bulk:** list every product in a Shopify collection as an eBay auction — Shopify price as the start price, the product's own image (eBay-hosted), auction/7-day, unique `[SKU]` titles. `dryRun` previews titles/prices + reports collisions; `skipExisting` avoids duplicates. |
+
+### Automated auction engine
+
+A self-hosted scheduler (`AUTO_AUCTION_ENABLED=true`) that runs **on the server** — no Claude session
+required — turning your `*ebaylive*` collections into a continuously-managed auction pipeline. State
+persists to a docker volume at `/data` (`mcp-data`).
+
+- **Lists batches on a timer** from every collection whose title contains `AUTO_AUCTION_COLLECTION_MATCH`
+  (default `ebaylive`; set `book-` to restrict to books), publishing top performers first.
+- **No duplicate live auctions** — a SKU is relisted only after its current auction closes.
+- **Ingests sold orders** (Fulfillment API), tracks per-cover-type sell-through + average sale price.
+- **Adapts the start-price floor per cover type** (RM/GITD/M/F/REG) within your hard min/max bounds:
+  strong sellers raise, weak sellers lower (never below the fee-aware minimum).
+- **Optional nightly LLM review** (`AUTO_AUCTION_ANTHROPIC_API_KEY`) for a strategy narrative.
+
+Control/inspect it with the MCP tools: `ebay_auction_status`, `ebay_auction_list_now` (dryRun),
+`ebay_auction_ingest_sales`, `ebay_auction_review`, `ebay_auction_set_floor`. All settings are the
+`AUTO_AUCTION_*` env vars (see `.env.example`). Start with `AUTO_AUCTION_ENABLED=false` and a
+`dryRun` list to observe before going fully automatic, and set `AUTO_AUCTION_HARD_MIN_FLOORS` to your
+real cost + fees so automation can't sell at a loss.
 
 ### Errors
 

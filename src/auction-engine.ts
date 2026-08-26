@@ -32,6 +32,26 @@ export function coverTypeOf(sku: string): string {
 const COVER_LABEL: Record<string, string> = { RM: "Raised Metal", GITD: "Glow in the Dark", M: "Metal", F: "Foil", REG: "Regular" };
 export const coverLabel = (t: string): string => COVER_LABEL[t] ?? t;
 
+/**
+ * Human series name for a product. Prefers a product tag like "Dead-sexy-1-books"
+ * (dashes = real word boundaries + casing) → "Dead Sexy #1"; falls back to the
+ * collection slug ("book-deadsexy-1-ebaylive" → "Deadsexy #1"); else "Comic".
+ */
+export function deriveSeries(tags: string[], collectionTitle: string): string {
+  const bookTag = (tags ?? []).find((t) => /-\d+-books$/i.test(t));
+  const src = bookTag
+    ? bookTag.replace(/-books$/i, "")
+    : collectionTitle.replace(/^(books?|prints?)-/i, "").replace(/-ebaylive$/i, "");
+  const words: string[] = [];
+  let num = "";
+  for (const p of src.split("-").filter(Boolean)) {
+    if (/^\d+$/.test(p)) num = p;
+    else words.push(p.charAt(0).toUpperCase() + p.slice(1));
+  }
+  const name = words.join(" ").trim();
+  return name ? (num ? `${name} #${num}` : name) : "Comic";
+}
+
 const cleanImage = (url: string): string => { const q = url.indexOf("?"); return q === -1 ? url : url.slice(0, q); };
 const stripSuffix = (sku: string): string => sku.replace(/-ebaylive$/i, "");
 
@@ -51,7 +71,7 @@ const PRODUCTS_Q = /* GraphQL */ `
     }
   }`;
 
-interface Candidate { sku: string; title: string; vendor: string; artist: string; imageUrl: string; coverType: string; }
+interface Candidate { sku: string; title: string; series: string; vendor: string; artist: string; imageUrl: string; coverType: string; }
 
 export class AuctionEngine {
   constructor(
@@ -108,7 +128,7 @@ export class AuctionEngine {
           if (!sku || !img || seen.has(sku)) continue;
           seen.add(sku);
           const artist = (p.tags ?? []).find((t) => /\s/.test(t) && !/-books$/i.test(t) && t.toLowerCase() !== "ebaylive") ?? "";
-          out.push({ sku, title: p.title, vendor: p.vendor ?? "Divinity Comics", artist, imageUrl: cleanImage(img), coverType: coverTypeOf(sku) });
+          out.push({ sku, title: p.title, series: deriveSeries(p.tags ?? [], col.title), vendor: p.vendor ?? "Divinity Comics", artist, imageUrl: cleanImage(img), coverType: coverTypeOf(sku) });
         }
         if (!pc.products.pageInfo.hasNextPage) break;
         after = pc.products.pageInfo.endCursor;
@@ -117,9 +137,9 @@ export class AuctionEngine {
     return out;
   }
 
-  private buildTitle(c: Candidate, series: string): string {
+  private buildTitle(c: Candidate): string {
     const s = stripSuffix(c.sku);
-    const base = `${series} ${coverLabel(c.coverType)} Variant - ${c.vendor}`;
+    const base = `${c.series} ${coverLabel(c.coverType)} Variant - ${c.vendor}`;
     const withArtist = c.artist ? `${base} (${c.artist}) [${s}]` : `${base} [${s}]`;
     if (withArtist.length <= 80) return withArtist;
     const noArtist = `${base} [${s}]`;
@@ -128,9 +148,8 @@ export class AuctionEngine {
 
   /** Publish a single auction at the given start price. Returns {itemId, offerId}. */
   private async publishOne(c: Candidate, startPrice: number): Promise<{ itemId: string; offerId: string }> {
-    const series = c.title.match(/^(DS\d+)/i) ? `Dead Sexy #${(/^DS(\d+)/i.exec(c.title) ?? [])[1]}` : (this.config.ebayListing.categoryId ? "" : "");
-    const seriesLabel = series || "Comic"; // best-effort; the SKU tag guarantees identity
-    const title = this.buildTitle(c, seriesLabel || "Comic");
+    const seriesLabel = c.series;
+    const title = this.buildTitle(c);
     const d = this.config.ebayListing;
     let image = c.imageUrl;
     try { image = await this.ebay.uploadHostedPicture(c.imageUrl, c.sku); } catch { /* fall back to raw */ }
