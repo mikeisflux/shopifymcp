@@ -55,6 +55,8 @@ export interface Config {
   ebayDeletionEndpointUrl: string | undefined;
   /** Baked-in defaults for building eBay listings (ship-from, policies, comic defaults). */
   ebayListing: EbayListingDefaults;
+  /** Automated auction engine (scheduler + adaptive pricing). */
+  auction: AuctionAutomationConfig;
 }
 
 /**
@@ -80,6 +82,38 @@ export interface EbayListingDefaults {
   listingDuration: string;
   /** How the agent should build listing titles ("reader" = buyer-friendly from code+series+variant). */
   titleStyle: string;
+}
+
+/**
+ * Automated auction engine: a self-hosted scheduler that periodically lists
+ * batches of eBay-Live books, ingests sold data, and adapts per-cover-type
+ * auction floors. Runs on the server itself (no Claude chat required).
+ */
+export interface AuctionAutomationConfig {
+  /** Master switch — the scheduler only runs when true. */
+  enabled: boolean;
+  /** Directory for the persistent state file (mount a docker volume here). */
+  stateDir: string;
+  /** Case-insensitive substring a collection title must contain to be auto-listed. */
+  collectionMatch: string;
+  /** Max new auctions to publish per listing cycle. */
+  batchSize: number;
+  /** Minutes between listing cycles / sales-ingest cycles / floor-update (review) cycles. */
+  listIntervalMin: number;
+  ingestIntervalMin: number;
+  reviewIntervalMin: number;
+  /** Auction duration in days. */
+  durationDays: number;
+  /** Initial start-price floor per cover type (seeds the persisted, adapting floors). */
+  initialFloors: Record<string, number>;
+  /** Absolute minimum floor per cover type (fee/cost-aware; adaptation never goes below). */
+  hardMinFloors: Record<string, number>;
+  /** Absolute maximum any floor may adapt to. */
+  hardMaxFloor: number;
+  /** Optional Anthropic API key enabling the Phase-4 nightly LLM strategy review. */
+  anthropicApiKey: string | undefined;
+  /** When true, the engine applies its own adaptive floor changes; when false it only recommends. */
+  autoApplyFloors: boolean;
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -220,6 +254,34 @@ export function loadConfig(): Config {
     titleStyle: optional("EBAY_TITLE_STYLE") ?? "reader",
   };
 
+  // ─── Automated auction engine ──────────────────────────────────────────────
+  const parseFloors = (name: string, fallback: Record<string, number>): Record<string, number> => {
+    const raw = optional(name);
+    if (!raw) return fallback;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      return { ...fallback, ...parsed };
+    } catch {
+      errors.push(`  - ${name} must be JSON like {"RM":20,"GITD":30,"M":20,"F":15,"REG":5}`);
+      return fallback;
+    }
+  };
+  const auction: AuctionAutomationConfig = {
+    enabled: (optional("AUTO_AUCTION_ENABLED") ?? "false").toLowerCase() === "true",
+    stateDir: optional("AUTO_AUCTION_STATE_DIR") ?? "/data",
+    collectionMatch: (optional("AUTO_AUCTION_COLLECTION_MATCH") ?? "ebaylive").toLowerCase(),
+    batchSize: Number.parseInt(optional("AUTO_AUCTION_BATCH_SIZE") ?? "20", 10) || 20,
+    listIntervalMin: Number.parseInt(optional("AUTO_AUCTION_LIST_INTERVAL_MIN") ?? "360", 10) || 360,
+    ingestIntervalMin: Number.parseInt(optional("AUTO_AUCTION_INGEST_INTERVAL_MIN") ?? "120", 10) || 120,
+    reviewIntervalMin: Number.parseInt(optional("AUTO_AUCTION_REVIEW_INTERVAL_MIN") ?? "1440", 10) || 1440,
+    durationDays: Number.parseInt(optional("AUTO_AUCTION_DURATION_DAYS") ?? "7", 10) || 7,
+    initialFloors: parseFloors("AUTO_AUCTION_FLOORS", { RM: 20, GITD: 30, M: 20, F: 15, REG: 5 }),
+    hardMinFloors: parseFloors("AUTO_AUCTION_HARD_MIN_FLOORS", { RM: 10, GITD: 15, M: 10, F: 7, REG: 3 }),
+    hardMaxFloor: Number.parseInt(optional("AUTO_AUCTION_HARD_MAX_FLOOR") ?? "250", 10) || 250,
+    anthropicApiKey: optional("AUTO_AUCTION_ANTHROPIC_API_KEY") ?? optional("ANTHROPIC_API_KEY"),
+    autoApplyFloors: (optional("AUTO_AUCTION_AUTO_APPLY_FLOORS") ?? "true").toLowerCase() === "true",
+  };
+
   if (errors.length > 0) {
     throw new Error(
       `Invalid configuration. Fix the following environment variables:\n${errors.join("\n")}`,
@@ -250,5 +312,6 @@ export function loadConfig(): Config {
     ebayDeletionVerificationToken,
     ebayDeletionEndpointUrl,
     ebayListing,
+    auction,
   };
 }

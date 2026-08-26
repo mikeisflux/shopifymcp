@@ -41,6 +41,10 @@ import { registerSplitTools } from "./tools/split.js";
 import { EbayClient } from "./ebay-client.js";
 import { registerEbayTools } from "./tools/ebay.js";
 import { registerEbayBulkTools } from "./tools/ebay-bulk.js";
+import { AuctionStore } from "./auction-store.js";
+import { AuctionEngine } from "./auction-engine.js";
+import { AuctionScheduler } from "./auction-scheduler.js";
+import { registerAuctionMachineTools } from "./tools/auction-machine.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
@@ -143,7 +147,7 @@ ${body}
  * mode a new server + transport is created per request to avoid request-id
  * collisions across concurrent clients.
  */
-function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClient | undefined): McpServer {
+function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClient | undefined, auctionEngine: AuctionEngine | undefined): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {} } },
@@ -197,6 +201,11 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
     if (config.enableWrites) registerEbayBulkTools(server, client, ebayClient, config);
   }
 
+  // Automated auction engine controls (status + manual cycle triggers).
+  if (auctionEngine && config.enableWrites) {
+    registerAuctionMachineTools(server, auctionEngine);
+  }
+
   return server;
 }
 
@@ -221,6 +230,15 @@ function main(): void {
   configureLogger(config.logLevel);
   const client = new ShopifyClient(config);
   const ebayClient = config.ebayEnabled ? new EbayClient(config) : undefined;
+
+  // Automated auction engine: persistent store + scheduler, running on the server
+  // itself (no Claude chat required). Only active when eBay is configured.
+  let auctionEngine: AuctionEngine | undefined;
+  if (ebayClient) {
+    const store = new AuctionStore(config.auction.stateDir);
+    auctionEngine = new AuctionEngine(config, client, ebayClient, store);
+    new AuctionScheduler(auctionEngine, config.auction).start();
+  }
   const app = express();
   app.use(express.json({ limit: "4mb" }));
 
@@ -360,7 +378,7 @@ function main(): void {
   // Stateless JSON: POST carries the JSON-RPC request; a fresh server +
   // transport handle it and are torn down when the response closes.
   app.post(mcpPath, authenticate, async (req: Request, res: Response) => {
-    const server = buildServer(config, client, ebayClient);
+    const server = buildServer(config, client, ebayClient, auctionEngine);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       void transport.close();
