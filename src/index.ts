@@ -42,7 +42,7 @@ import { EbayClient } from "./ebay-client.js";
 import { registerEbayTools } from "./tools/ebay.js";
 import { registerEbayBulkTools } from "./tools/ebay-bulk.js";
 import { AuctionStore } from "./auction-store.js";
-import { AuctionEngine } from "./auction-engine.js";
+import { AuctionEngine, coverLabel } from "./auction-engine.js";
 import { AuctionScheduler } from "./auction-scheduler.js";
 import { registerAuctionMachineTools } from "./tools/auction-machine.js";
 
@@ -117,6 +117,52 @@ const EBAY_DEFAULT_OAUTH_SCOPES = [
   "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
   "https://api.ebay.com/oauth/api_scope/sell.marketing",
 ].join(" ");
+
+/** Renders the automated-auction status dashboard (served at /auction/:secret). */
+function renderAuctionDashboard(r: ReturnType<AuctionEngine["report"]>): string {
+  const esc = (s: string) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+  const ago = (iso: string | null): string => {
+    if (!iso) return "never";
+    const ms = Date.now() - new Date(iso).getTime();
+    const h = Math.floor(ms / 3_600_000), m = Math.floor((ms % 3_600_000) / 60_000);
+    return h > 0 ? `${h}h ${m}m ago` : `${m}m ago`;
+  };
+  const floorRows = Object.entries(r.floors).map(([t, v]) => `<tr><td>${esc(coverLabel(t))}</td><td class="num">$${Number(v).toFixed(2)}</td></tr>`).join("") || `<tr><td colspan="2" class="muted">no floors yet</td></tr>`;
+  const perfRows = Object.entries(r.performance).map(([t, p]) =>
+    `<tr><td>${esc(coverLabel(t))}</td><td class="num">${p.listed}</td><td class="num">${p.sold}</td><td class="num">${(p.sellThrough * 100).toFixed(0)}%</td><td class="num">$${p.avgSold.toFixed(2)}</td></tr>`,
+  ).join("") || `<tr><td colspan="5" class="muted">no closed auctions yet — data appears as auctions end</td></tr>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/><meta http-equiv="refresh" content="60"/>
+<title>Auction Engine</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 1.5rem auto; max-width: 780px; padding: 0 1rem; line-height: 1.5; }
+  h1 { font-size: 1.4rem; margin-bottom: .25rem; } .pill { font-size: .8rem; padding: .1em .6em; border-radius: 999px; color: #fff; }
+  .on { background: #158a3a; } .off { background: #999; }
+  .cards { display: flex; gap: .75rem; flex-wrap: wrap; margin: 1rem 0; }
+  .card { flex: 1 1 120px; border: 1px solid #8883; border-radius: 10px; padding: .75rem 1rem; }
+  .card .n { font-size: 1.6rem; font-weight: 700; } .card .l { font-size: .8rem; opacity: .7; }
+  table { width: 100%; border-collapse: collapse; margin: .5rem 0 1.25rem; } th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid #8882; }
+  td.num, th.num { text-align: right; } .muted { opacity: .6; } h2 { font-size: 1rem; margin-top: 1.25rem; }
+  pre { background: #8881; padding: 1rem; border-radius: 8px; white-space: pre-wrap; font-size: .9rem; }
+  footer { opacity: .6; font-size: .8rem; margin-top: 1.5rem; }
+</style></head><body>
+<h1>Auction Engine <span class="pill ${r.enabled ? "on" : "off"}">${r.enabled ? "enabled" : "disabled"}</span></h1>
+<div class="cards">
+  <div class="card"><div class="n">${r.activeCount}</div><div class="l">live auctions</div></div>
+  <div class="card"><div class="n">${r.historyCount}</div><div class="l">closed to date</div></div>
+  <div class="card"><div class="n">${ago(r.lastListAt)}</div><div class="l">last listed</div></div>
+  <div class="card"><div class="n">${ago(r.lastReviewAt)}</div><div class="l">last review</div></div>
+</div>
+<h2>Current floors (auction start price)</h2>
+<table><thead><tr><th>Cover type</th><th class="num">Floor</th></tr></thead><tbody>${floorRows}</tbody></table>
+<h2>Performance by cover type</h2>
+<table><thead><tr><th>Cover type</th><th class="num">Listed</th><th class="num">Sold</th><th class="num">Sell-through</th><th class="num">Avg sale</th></tr></thead><tbody>${perfRows}</tbody></table>
+<h2>Latest strategy review</h2>
+<pre>${r.lastReview ? esc(r.lastReview) : "No review yet — runs on the review cycle once there's sales data."}</pre>
+<footer>Auto-refreshes every 60s · last sales ingest ${ago(r.lastIngestAt)}</footer>
+</body></html>`;
+}
 
 /** Renders the eBay OAuth wizard result page (success shows the refresh token). */
 function oauthResultPage(heading: string, detail: string | null, refreshToken: string | null, expiresInSec?: number): string {
@@ -252,6 +298,14 @@ function main(): void {
   app.get("/privacy", (_req: Request, res: Response) => {
     res.status(200).type("html").send(PRIVACY_POLICY_HTML);
   });
+
+  // Auction-engine status dashboard — behind the MCP secret path (business data).
+  if (auctionEngine) {
+    app.get("/auction/:secret", (req: Request, res: Response) => {
+      if (!safeEqual(req.params.secret ?? "", config.mcpPathSecret)) { res.status(404).end(); return; }
+      res.status(200).type("html").send(renderAuctionDashboard(auctionEngine!.report()));
+    });
+  }
 
   // eBay OAuth setup wizard — obtains a long-lived refresh token via the
   // authorization-code flow, which eBay's portal "test token" tool does not hand
