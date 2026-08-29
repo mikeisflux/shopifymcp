@@ -128,6 +128,7 @@ cp .env.example .env
 | `EBAY_REFRESH_TOKEN` | optional | User OAuth refresh token (Sell scopes). Required for the Sell APIs. The server exchanges it for a short-lived user access token and refreshes automatically. Without it, only client-credentials app-token endpoints work. |
 | `EBAY_SCOPES` | optional | Space-separated OAuth scopes. Optional with a refresh token (its granted scopes are used); required when falling back to a client-credentials app token. |
 | `EBAY_MARKETPLACE_ID` | — | Sent as `X-EBAY-C-MARKETPLACE-ID`. Defaults to `EBAY_US`. |
+| `EBAY_SELLER_TIMEZONE` | — | IANA timezone of the account's "Date sold" display. Defaults to `America/Los_Angeles`. Used by `ebay_search_orders` to interpret local date ranges. |
 | `EBAY_ENV` | — | `production` (default) or `sandbox`. Selects `api.ebay.com` vs `api.sandbox.ebay.com`. |
 | `EBAY_DELETION_VERIFICATION_TOKEN` + `EBAY_DELETION_ENDPOINT_URL` | optional | Enable the eBay **Marketplace Account Deletion** notification endpoint that eBay requires before a production keyset activates. Set **both** (see below). |
 
@@ -371,6 +372,7 @@ Analytics, …), so any management task the API allows is available even without
 | `ebay_bulk_update_price_quantity` | Bulk-update price and/or available quantity across many SKUs/offers in one call. `dryRun` defaults on. |
 | `ebay_get_inventory_locations` / `ebay_create_inventory_location` | List merchant/inventory locations, or create one (required before publishing offers). |
 | `ebay_upload_hosted_image` | Copy an external image (Shopify CDN URL) to eBay Picture Services (`i.ebayimg.com`) so it shows on **eBay Live**, not just the standard listing. |
+| `ebay_search_orders` | Search recent orders by keyword (line item titles), buyer name, SKU-presence (`noSkuOnly`), and total, within a date range in the **seller's local timezone** (`sinceDays`/`dateFrom`/`dateTo`). Paginates the Fulfillment API internally and returns compact summaries. |
 | `ebay_bulk_list_auctions` | **Bulk:** list every product in a Shopify collection as an eBay auction — Shopify price as the start price, the product's own image (eBay-hosted), auction/7-day, unique `[SKU]` titles. `dryRun` previews titles/prices + reports collisions; `skipExisting` avoids duplicates. |
 
 ### Automated auction engine

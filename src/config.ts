@@ -40,6 +40,8 @@ export interface Config {
   ebayScopes: string | undefined;
   /** Default marketplace, e.g. EBAY_US, sent as X-EBAY-C-MARKETPLACE-ID. */
   ebayMarketplaceId: string;
+  /** IANA timezone of the seller's eBay dashboard ("Date sold" display), used to interpret local date ranges. */
+  ebaySellerTimezone: string;
   /** True when the eBay tools should be registered (client creds + a usable grant: refresh token or scopes). */
   ebayToolsEnabled: boolean;
   /** eBay OAuth RuName (redirect_uri value) for the built-in refresh-token setup wizard at /ebay/oauth/start. */
@@ -206,6 +208,7 @@ export function loadConfig(): Config {
   const ebayRefreshToken = optional("EBAY_REFRESH_TOKEN");
   const ebayScopes = optional("EBAY_SCOPES");
   const ebayMarketplaceId = optional("EBAY_MARKETPLACE_ID") ?? "EBAY_US";
+  const ebaySellerTimezone = optional("EBAY_SELLER_TIMEZONE") ?? "America/Los_Angeles";
   const ebayEnvRaw = (optional("EBAY_ENV") ?? "production").toLowerCase();
   const ebayEnv: "production" | "sandbox" = ebayEnvRaw === "sandbox" ? "sandbox" : "production";
   const ebayOauthRuName = optional("EBAY_OAUTH_RUNAME");
@@ -307,6 +310,7 @@ export function loadConfig(): Config {
     ebayRefreshToken,
     ebayScopes,
     ebayMarketplaceId,
+    ebaySellerTimezone,
     ebayToolsEnabled,
     ebayOauthRuName,
     ebayDeletionVerificationToken,

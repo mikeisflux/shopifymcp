@@ -268,6 +268,115 @@ export function registerEbayTools(server: McpServer, ebay: EbayClient, config: C
     }),
   });
 
+  // ─── Order search (compact, timezone-aware) ─────────────────────────────────
+  registerEbayTool(server, ebay, {
+    name: "ebay_search_orders",
+    title: "Search eBay orders (compact)",
+    description:
+      "Search recent eBay orders by keyword (matched against line item titles), buyer name, and/or SKU-presence, within a date range expressed in the SELLER'S LOCAL TIMEZONE (default America/Los_Angeles, override EBAY_SELLER_TIMEZONE). Internally paginates the Fulfillment API and filters client-side, returning COMPACT per-order summaries instead of full order payloads. Solves the 'find that lot sale from yesterday' / 'did anything sell this week that has no SKU' problems without paging raw order JSON by hand.",
+    inputSchema: {
+      query: z.string().optional().describe('Keyword(s) matched case-insensitively against line item titles. Matches an order if ANY whitespace-separated word appears (e.g. "blank glow").'),
+      buyerName: z.string().optional().describe("Substring matched case-insensitively against the buyer's full name or eBay username."),
+      sinceDays: z.number().int().positive().optional().describe("How many days back to search, evaluated in the seller's local timezone. Default 7. Ignored when dateFrom/dateTo are given."),
+      dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Explicit local start date YYYY-MM-DD (inclusive), interpreted in the seller's timezone. Requires dateTo."),
+      dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Explicit local end date YYYY-MM-DD (inclusive), interpreted in the seller's timezone. Requires dateFrom."),
+      noSkuOnly: z.boolean().optional().describe("If true, only return orders with at least one line item lacking a SKU (manually-listed/custom sales that can't auto-sync to Shopify)."),
+      minTotal: z.number().optional().describe("Only orders whose total is >= this amount."),
+      maxTotal: z.number().optional().describe("Only orders whose total is <= this amount."),
+      limit: z.number().int().positive().optional().describe("Max orders to return. Default 25, max 100."),
+    },
+    annotations: READ,
+    handler: async (args, e) => {
+      const tz = config.ebaySellerTimezone;
+      const now = new Date();
+
+      // Resolve the local-date window, then convert to a UTC creationdate range.
+      let fromUtc: Date;
+      let toUtc: Date;
+      if (args.dateFrom && args.dateTo) {
+        fromUtc = zonedDayStartToUtc(args.dateFrom, tz);
+        // inclusive end: start of dateTo + 1 day
+        toUtc = new Date(zonedDayStartToUtc(args.dateTo, tz).getTime() + DAY_MS);
+      } else if (args.dateFrom || args.dateTo) {
+        throw new Error("dateFrom and dateTo must be provided together.");
+      } else {
+        const sinceDays = args.sinceDays ?? 7;
+        const todayLocal = toZonedIso(now, tz).slice(0, 10);
+        const todayStartUtc = zonedDayStartToUtc(todayLocal, tz);
+        fromUtc = new Date(todayStartUtc.getTime() - sinceDays * DAY_MS);
+        toUtc = now;
+      }
+
+      const filter = `creationdate:[${fromUtc.toISOString()}..${toUtc.toISOString()}]`;
+      const limit = Math.min(Math.max(args.limit ?? 25, 1), 100);
+
+      // Pre-compute filter predicates.
+      const words = (args.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+      const buyerNeedle = args.buyerName?.toLowerCase().trim();
+
+      type Li = { title?: string; sku?: string; quantity?: number; lineItemCost?: { value?: string } };
+      type Order = {
+        orderId?: string;
+        creationDate?: string;
+        buyer?: { username?: string; buyerRegistrationAddress?: { fullName?: string } };
+        pricingSummary?: { total?: { value?: string; currency?: string } };
+        lineItems?: Li[];
+      };
+
+      const matches: Array<Record<string, unknown>> = [];
+      let scanned = 0;
+      let offset = 0;
+      // Fulfillment API caps limit at 200/page; loop until the window is exhausted.
+      for (let page = 0; page < 25; page++) {
+        const res = await e.request("GET", "/sell/fulfillment/v1/order", { query: { filter, limit: 200, offset } });
+        const data = res.data as { orders?: Order[]; total?: number } | undefined;
+        const orders = data?.orders ?? [];
+        for (const o of orders) {
+          scanned++;
+          const lineItems = o.lineItems ?? [];
+          const totalStr = o.pricingSummary?.total?.value;
+          const totalNum = totalStr !== undefined ? Number(totalStr) : NaN;
+
+          if (args.noSkuOnly && !lineItems.some((li) => !li.sku)) continue;
+          if (words.length && !lineItems.some((li) => { const t = (li.title ?? "").toLowerCase(); return words.some((w) => t.includes(w)); })) continue;
+          if (buyerNeedle) {
+            const full = (o.buyer?.buyerRegistrationAddress?.fullName ?? "").toLowerCase();
+            const user = (o.buyer?.username ?? "").toLowerCase();
+            if (!full.includes(buyerNeedle) && !user.includes(buyerNeedle)) continue;
+          }
+          if (args.minTotal !== undefined && (Number.isNaN(totalNum) || totalNum < args.minTotal)) continue;
+          if (args.maxTotal !== undefined && (Number.isNaN(totalNum) || totalNum > args.maxTotal)) continue;
+
+          matches.push({
+            orderId: o.orderId ?? null,
+            buyerName: o.buyer?.buyerRegistrationAddress?.fullName ?? null,
+            buyerUsername: o.buyer?.username ?? null,
+            dateSoldLocal: o.creationDate ? toZonedIso(new Date(o.creationDate), tz) : null,
+            total: totalStr ?? null,
+            currency: o.pricingSummary?.total?.currency ?? null,
+            hasUnmatchedSku: lineItems.some((li) => !li.sku),
+            lineItems: lineItems.map((li) => ({
+              title: li.title ?? null,
+              sku: li.sku ?? null,
+              qty: li.quantity ?? null,
+              price: li.lineItemCost?.value ?? null,
+            })),
+          });
+          if (matches.length >= limit) break;
+        }
+        if (matches.length >= limit || orders.length < 200) break;
+        offset += 200;
+      }
+
+      const window = { timeZone: tz, fromUtc: fromUtc.toISOString(), toUtc: toUtc.toISOString(), fromLocal: toZonedIso(fromUtc, tz), toLocal: toZonedIso(toUtc, tz) };
+      const header = `Found **${matches.length}** order(s) (scanned ${scanned}) in ${tz} window ${window.fromLocal} → ${window.toLocal}.`;
+      return {
+        markdown: `${header}\n\n\`\`\`json\n${JSON.stringify(matches, null, 2).slice(0, 12000)}\n\`\`\``,
+        structured: { count: matches.length, scanned, window, orders: matches },
+      };
+    },
+  });
+
   // ─── Picture hosting (Trading API) ──────────────────────────────────────────
   registerEbayTool(server, ebay, {
     name: "ebay_upload_hosted_image",
@@ -302,4 +411,52 @@ export function registerEbayTools(server: McpServer, ebay: EbayClient, config: C
 /** Adapts an EbayResponse into ok()'s (status, data) argument pair. */
 function toPair(res: { status: number; data: unknown }): [number, unknown] {
   return [res.status, res.data];
+}
+
+// ─── Timezone helpers (no external deps; uses Intl) ──────────────────────────
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Offset in ms (localWallClock − UTC) for the given instant in `timeZone`. */
+function tzOffsetMs(date: Date, timeZone: string): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const map: Record<string, string> = {};
+  for (const p of dtf.formatToParts(date)) map[p.type] = p.value;
+  let hour = Number(map.hour);
+  if (hour === 24) hour = 0; // some engines render midnight as 24
+  const asUtc = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), hour, Number(map.minute), Number(map.second));
+  return asUtc - date.getTime();
+}
+
+/** UTC instant for local wall-clock midnight (00:00:00) of `YYYY-MM-DD` in `timeZone`. */
+function zonedDayStartToUtc(dateStr: string, timeZone: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const guessUtc = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1, 0, 0, 0);
+  const offset = tzOffsetMs(new Date(guessUtc), timeZone);
+  return new Date(guessUtc - offset);
+}
+
+/** Format a UTC Date as an ISO-8601 string carrying `timeZone`'s local offset. */
+function toZonedIso(date: Date, timeZone: string): string {
+  const offset = tzOffsetMs(date, timeZone);
+  const local = new Date(date.getTime() + offset);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const sign = offset >= 0 ? "+" : "-";
+  const abs = Math.abs(offset);
+  const oh = Math.floor(abs / 3_600_000);
+  const om = Math.floor((abs % 3_600_000) / 60_000);
+  return (
+    `${local.getUTCFullYear()}-${pad(local.getUTCMonth() + 1)}-${pad(local.getUTCDate())}` +
+    `T${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}:${pad(local.getUTCSeconds())}` +
+    `${sign}${pad(oh)}:${pad(om)}`
+  );
 }
