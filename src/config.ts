@@ -59,6 +59,17 @@ export interface Config {
   ebayListing: EbayListingDefaults;
   /** Automated auction engine (scheduler + adaptive pricing). */
   auction: AuctionAutomationConfig;
+  /** Scheduled Shopify→eBay tracking sync. */
+  trackingSync: TrackingSyncConfig;
+}
+
+export interface TrackingSyncConfig {
+  /** Whether the background tracking-sync scheduler runs. */
+  enabled: boolean;
+  /** Minutes between sync runs. */
+  intervalMin: number;
+  /** Directory for the watermark/state file. */
+  stateDir: string;
 }
 
 /**
@@ -288,6 +299,12 @@ export function loadConfig(): Config {
     autoApplyFloors: (optional("AUTO_AUCTION_AUTO_APPLY_FLOORS") ?? "true").toLowerCase() === "true",
   };
 
+  const trackingSync: TrackingSyncConfig = {
+    enabled: (optional("EBAY_TRACKING_SYNC_ENABLED") ?? "false").toLowerCase() === "true",
+    intervalMin: Number.parseInt(optional("EBAY_TRACKING_SYNC_INTERVAL_MIN") ?? "5", 10) || 5,
+    stateDir: optional("EBAY_TRACKING_SYNC_STATE_DIR") ?? optional("AUTO_AUCTION_STATE_DIR") ?? "/data",
+  };
+
   if (errors.length > 0) {
     throw new Error(
       `Invalid configuration. Fix the following environment variables:\n${errors.join("\n")}`,
@@ -320,5 +337,6 @@ export function loadConfig(): Config {
     ebayDeletionEndpointUrl,
     ebayListing,
     auction,
+    trackingSync,
   };
 }

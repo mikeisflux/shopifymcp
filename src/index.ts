@@ -49,6 +49,8 @@ import { registerEbayListingWorkflowTools } from "./tools/ebay-relist.js";
 import { AuctionStore } from "./auction-store.js";
 import { AuctionEngine, coverLabel } from "./auction-engine.js";
 import { AuctionScheduler } from "./auction-scheduler.js";
+import { FulfillmentSyncEngine, startTrackingSyncScheduler } from "./fulfillment-sync.js";
+import { registerFulfillmentSyncTools } from "./tools/fulfillment-sync.js";
 import { registerAuctionMachineTools } from "./tools/auction-machine.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
@@ -198,7 +200,7 @@ ${body}
  * mode a new server + transport is created per request to avoid request-id
  * collisions across concurrent clients.
  */
-function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClient | undefined, auctionEngine: AuctionEngine | undefined): McpServer {
+function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClient | undefined, auctionEngine: AuctionEngine | undefined, trackingEngine: FulfillmentSyncEngine | undefined): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {} } },
@@ -268,6 +270,11 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
     registerAuctionMachineTools(server, auctionEngine);
   }
 
+  // Shopify→eBay tracking sync (on-demand trigger for the scheduled job).
+  if (trackingEngine && config.enableWrites) {
+    registerFulfillmentSyncTools(server, trackingEngine);
+  }
+
   return server;
 }
 
@@ -296,10 +303,14 @@ function main(): void {
   // Automated auction engine: persistent store + scheduler, running on the server
   // itself (no Claude chat required). Only active when eBay is configured.
   let auctionEngine: AuctionEngine | undefined;
+  let trackingEngine: FulfillmentSyncEngine | undefined;
   if (ebayClient) {
     const store = new AuctionStore(config.auction.stateDir);
     auctionEngine = new AuctionEngine(config, client, ebayClient, store);
     new AuctionScheduler(auctionEngine, config.auction).start();
+    // Shopify→eBay tracking sync engine + its own scheduler.
+    trackingEngine = new FulfillmentSyncEngine(client, ebayClient, config);
+    startTrackingSyncScheduler(trackingEngine, config);
   }
   const app = express();
   app.use(express.json({ limit: "4mb" }));
@@ -448,7 +459,7 @@ function main(): void {
   // Stateless JSON: POST carries the JSON-RPC request; a fresh server +
   // transport handle it and are torn down when the response closes.
   app.post(mcpPath, authenticate, async (req: Request, res: Response) => {
-    const server = buildServer(config, client, ebayClient, auctionEngine);
+    const server = buildServer(config, client, ebayClient, auctionEngine, trackingEngine);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       void transport.close();

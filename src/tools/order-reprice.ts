@@ -25,6 +25,7 @@ import type { Config } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent, gidToId, toGid } from "../format.js";
 import { ebayLineUnitPrice } from "./ebay-listing.js";
+import { parseEbayOrderIds } from "../ebay-order-ids.js";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
@@ -141,14 +142,6 @@ async function findRepriceCandidates(shopify: ShopifyClient, sinceDays: number):
     after = res.data.orders.pageInfo.endCursor;
   }
   return ids;
-}
-
-/** Pull eBay order ids out of a Shopify order note (the merge tool's format + generic eBay ids). */
-function parseEbayOrderIds(note: string | null): string[] {
-  if (!note) return [];
-  const ids = new Set<string>();
-  for (const m of note.matchAll(/\b\d{2}-\d{4,6}-\d{4,6}\b/g)) ids.add(m[0]);
-  return [...ids];
 }
 
 /** Build sku→price and title→price maps from a set of eBay orders. */

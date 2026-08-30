@@ -287,7 +287,7 @@ in input. Lists use cursor pagination (`first` default 25, max 100; `after` curs
 - Destructive and all eBay-write tools default to **`dryRun:true`** — they echo the planned call and
   do nothing until you pass `dryRun:false`.
 
-There are **153 tools**. They're grouped by domain below.
+There are **154 tools**. They're grouped by domain below.
 
 ### Products & variants
 
@@ -506,6 +506,7 @@ Higher-level tools that span both platforms. All default to `dryRun:true` (or re
 | `ebay_check_listing_status` | Batch-check eBay listing status per SKU: `active` / `ended` / `unpublished` / `no_offer` / `no_inventory_item`, plus offerId, listingId, price. |
 | `ebay_relist_sold_covers` | End-to-end relist: take specific SKUs (or a collection's ended covers), clear stale offer/inventory, republish, and return item numbers filtered to just the requested SKUs, with a distinct `alreadyActive` bucket. |
 | `shopify_duplicate_listing_for_extra_copies` | Create N extra copies of a single-variant listing (incrementing `F2`/`F3` suffix, same image/price). `destination` is required — `ebay_only` publishes auctions without touching the catalog; `shopify_and_ebay` also creates products. |
+| `ebay_sync_fulfillment_tracking` | Push tracking from shipped Shopify orders onto the matching eBay order(s) and mark them shipped. Matches by order name (the eBay order id verbatim) or, for merge-draft orders, every eBay id in the note (pushed to each). Skips no-tracking, non-eBay, and already-FULFILLED orders (idempotent). **Runs automatically every `EBAY_TRACKING_SYNC_INTERVAL_MIN` minutes** when `EBAY_TRACKING_SYNC_ENABLED=true`; this triggers it on demand. `dryRun` previews. |
 
 ### Automated auction engine
 
