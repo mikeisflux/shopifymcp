@@ -72,6 +72,7 @@ const CREATE_DRAFT_ORDER = /* GraphQL */ `
       draftOrder {
         id name status invoiceUrl
         totalPriceSet { shopMoney { amount currencyCode } }
+        customer { id displayName }
       }
       userErrors { field message }
     }
@@ -84,7 +85,17 @@ const UPDATE_DRAFT_ORDER = /* GraphQL */ `
       draftOrder {
         id name status invoiceUrl
         totalPriceSet { shopMoney { amount currencyCode } }
+        customer { id displayName }
       }
+      userErrors { field message }
+    }
+  }
+`;
+
+const NAME_CUSTOMER = /* GraphQL */ `
+  mutation NameMergeCustomer($input: CustomerInput!) {
+    customerUpdate(input: $input) {
+      customer { id displayName }
       userErrors { field message }
     }
   }
@@ -114,7 +125,7 @@ interface EbayShipTo {
 interface EbayOrder {
   orderId?: string;
   creationDate?: string;
-  buyer?: { username?: string };
+  buyer?: { username?: string; buyerRegistrationAddress?: { fullName?: string; email?: string } };
   pricingSummary?: { total?: { value?: string; currency?: string } };
   lineItems?: EbayLineItem[];
   fulfillmentStartInstructions?: Array<{ shippingStep?: { shipTo?: EbayShipTo } }>;
@@ -161,13 +172,17 @@ async function resolveSkus(
   return out;
 }
 
-/** Split "Martin Kobovitch" → {firstName, lastName}. */
+/**
+ * Split an eBay full name on the FIRST whitespace: everything before →
+ * firstName, everything after → lastName. Single-word names (some business
+ * accounts) go entirely into firstName with a blank lastName.
+ */
 function splitName(full: string | undefined): { firstName?: string; lastName?: string } {
   const name = (full ?? "").trim();
   if (!name) return {};
-  const idx = name.lastIndexOf(" ");
-  if (idx === -1) return { firstName: name };
-  return { firstName: name.slice(0, idx), lastName: name.slice(idx + 1) };
+  const m = name.match(/^(\S+)\s+(.+)$/);
+  if (!m) return { firstName: name };
+  return { firstName: m[1], lastName: m[2]!.trim() };
 }
 
 /** Map an eBay ship-to into a Shopify MailingAddressInput. */
@@ -191,7 +206,35 @@ function toShopifyAddress(shipTo: EbayShipTo | undefined): Record<string, unknow
 }
 
 type ShopMoney = { shopMoney: { amount: string; currencyCode: string } };
-type DraftResult = { id: string; name: string; status: string; invoiceUrl: string | null; totalPriceSet: ShopMoney | null };
+type DraftCustomer = { id: string; displayName: string | null } | null;
+type DraftResult = { id: string; name: string; status: string; invoiceUrl: string | null; totalPriceSet: ShopMoney | null; customer: DraftCustomer };
+
+/**
+ * Ensure a draft's linked customer has a real name. draftOrderCreate/Update
+ * with an email auto-creates or matches a customer, but a freshly-created one
+ * gets its email (an eBay relay address) as its displayName — so if the name
+ * looks like an email, set the real name from the eBay full name. An existing
+ * matched customer already has a correct name and is left untouched.
+ * Returns the linkage outcome for the result object.
+ */
+async function ensureCustomerNamed(
+  shopify: ShopifyClient,
+  customer: DraftCustomer,
+  email: string | undefined,
+  fullName: string | undefined,
+): Promise<{ customerId: string | null; customerLinked: "created-and-named" | "matched-existing" | "skipped-no-email" }> {
+  if (!email || !customer) return { customerId: null, customerLinked: "skipped-no-email" };
+  const looksLikeEmail = (customer.displayName ?? "").includes("@");
+  if (!looksLikeEmail) return { customerId: gidToId(customer.id), customerLinked: "matched-existing" };
+  const { firstName, lastName } = splitName(fullName);
+  if (firstName) {
+    const input: Record<string, unknown> = { id: customer.id, firstName };
+    if (lastName) input.lastName = lastName;
+    const res = await shopify.request<{ customerUpdate: { customer: { id: string } | null; userErrors: Array<{ field: string[] | null; message: string }> } }>(NAME_CUSTOMER, { input });
+    assertNoUserErrors(res.data.customerUpdate.userErrors);
+  }
+  return { customerId: gidToId(customer.id), customerLinked: "created-and-named" };
+}
 
 export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient, ebay: EbayClient, config: Config): void {
   // ─── Batched SKU resolver (read) ───────────────────────────────────────────
@@ -281,6 +324,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
         interface Group {
           username: string;
           buyerName: string | null;
+          email: string | null;
           orders: Array<{ orderId: string; total: string | null; currency: string | null }>;
           shipTo: EbayShipTo | undefined;
           lineItems: EbayLineItem[];
@@ -292,12 +336,17 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
           const username = o.buyer?.username ?? "";
           if (!username) continue;
           const shipTo = o.fulfillmentStartInstructions?.[0]?.shippingStep?.shipTo;
+          const reg = o.buyer?.buyerRegistrationAddress;
+          const fullName = reg?.fullName ?? shipTo?.fullName ?? null;
+          const email = reg?.email ?? shipTo?.email ?? null;
           let g = groups.get(username);
           if (!g) {
-            g = { username, buyerName: shipTo?.fullName ?? null, orders: [], shipTo, lineItems: [], ebayTotal: 0, currency: "USD" };
+            g = { username, buyerName: fullName, email, orders: [], shipTo, lineItems: [], ebayTotal: 0, currency: "USD" };
             groups.set(username, g);
           }
-          if (!g.shipTo && shipTo) { g.shipTo = shipTo; g.buyerName = shipTo.fullName ?? g.buyerName; }
+          if (!g.shipTo && shipTo) g.shipTo = shipTo;
+          if (!g.buyerName && fullName) g.buyerName = fullName;
+          if (!g.email && email) g.email = email;
           const cur = o.pricingSummary?.total?.currency;
           if (cur) g.currency = cur;
           g.orders.push({ orderId: o.orderId ?? "", total: o.pricingSummary?.total?.value ?? null, currency: cur ?? null });
@@ -388,6 +437,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
           const plan: Record<string, unknown> = {
             buyerUsername: g.username,
             buyerName: g.buyerName,
+            email: g.email,
             orderCount: g.orders.length,
             orderIds,
             ebayTotal: g.ebayTotal.toFixed(2),
@@ -406,7 +456,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
           }
 
           if (args.dryRun) {
-            merged.push({ ...plan, draftOrderName: null, draftOrderId: null, action: args.separateFromExistingDrafts ? "would-create" : "would-append-or-create" });
+            merged.push({ ...plan, draftOrderName: null, draftOrderId: null, customerId: null, customerLinked: g.email ? "would-link" : "skipped-no-email", action: args.separateFromExistingDrafts ? "would-create" : "would-append-or-create" });
             continue;
           }
 
@@ -415,20 +465,23 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
             const prefix = `ebay-merge buyer:${g.username} range:`;
             const existingAny = openDrafts.find((d) => (d.note2 ?? "").includes(prefix));
             if (existingAny) {
-              const draft = await appendToDraft(shopify, existingAny.id, lineItemsInput, note);
-              merged.push({ ...plan, draftOrderName: draft.name, draftOrderId: gidToId(draft.id), total: draft.totalPriceSet?.shopMoney.amount ?? null, action: "appended" });
+              const draft = await appendToDraft(shopify, existingAny.id, lineItemsInput, note, g.email ?? undefined);
+              const link = await ensureCustomerNamed(shopify, draft.customer, g.email ?? undefined, g.buyerName ?? undefined);
+              merged.push({ ...plan, draftOrderName: draft.name, draftOrderId: gidToId(draft.id), total: draft.totalPriceSet?.shopMoney.amount ?? null, ...link, action: "appended" });
               continue;
             }
           }
 
-          // Create a new draft.
+          // Create a new draft. Pass email so Shopify attaches/creates a customer.
           const input: Record<string, unknown> = { lineItems: lineItemsInput, note, tags: ["ebay-merge"] };
           if (address) input.shippingAddress = address;
+          if (g.email) input.email = g.email;
           const res = await shopify.request<{ draftOrderCreate: { draftOrder: DraftResult | null; userErrors: Array<{ field: string[] | null; message: string }> } }>(CREATE_DRAFT_ORDER, { input });
           assertNoUserErrors(res.data.draftOrderCreate.userErrors);
           const draft = res.data.draftOrderCreate.draftOrder!;
+          const link = await ensureCustomerNamed(shopify, draft.customer, g.email ?? undefined, g.buyerName ?? undefined);
           openDrafts.push({ id: draft.id, name: draft.name, note2: note });
-          merged.push({ ...plan, draftOrderName: draft.name, draftOrderId: gidToId(draft.id), total: draft.totalPriceSet?.shopMoney.amount ?? null, action: "created" });
+          merged.push({ ...plan, draftOrderName: draft.name, draftOrderId: gidToId(draft.id), total: draft.totalPriceSet?.shopMoney.amount ?? null, ...link, action: "created" });
         }
 
         const summary = {
@@ -471,6 +524,7 @@ async function appendToDraft(
   draftGid: string,
   newLineItems: Array<Record<string, unknown>>,
   appendedNote: string,
+  email: string | undefined,
 ): Promise<DraftResult> {
   const existing = await shopify.request<{
     draftOrder: {
@@ -491,10 +545,11 @@ async function appendToDraft(
     }
     return { title: li.title, originalUnitPrice: money?.amount ?? "0.00", quantity: li.quantity };
   });
-  const input = {
+  const input: Record<string, unknown> = {
     lineItems: [...rebuilt, ...newLineItems],
     note: `${cur.note2 ?? ""}\n${appendedNote}`.trim(),
   };
+  if (email) input.email = email; // link a customer if the draft doesn't have one yet
   const res = await shopify.request<{ draftOrderUpdate: { draftOrder: DraftResult | null; userErrors: Array<{ field: string[] | null; message: string }> } }>(UPDATE_DRAFT_ORDER, { id: draftGid, input });
   assertNoUserErrors(res.data.draftOrderUpdate.userErrors);
   return res.data.draftOrderUpdate.draftOrder!;
