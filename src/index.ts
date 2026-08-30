@@ -41,6 +41,7 @@ import { registerSplitTools } from "./tools/split.js";
 import { EbayClient } from "./ebay-client.js";
 import { registerEbayTools } from "./tools/ebay.js";
 import { registerEbayBulkTools } from "./tools/ebay-bulk.js";
+import { registerEbayMergeTools } from "./tools/ebay-merge.js";
 import { AuctionStore } from "./auction-store.js";
 import { AuctionEngine, coverLabel } from "./auction-engine.js";
 import { AuctionScheduler } from "./auction-scheduler.js";
@@ -245,6 +246,8 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
     // Cross-service bulk lister (Shopify collection → eBay auctions). Gated behind
     // the Shopify write flag since it publishes live listings.
     if (config.enableWrites) registerEbayBulkTools(server, client, ebayClient, config);
+    // Cross-service: merge a day's eBay sales into Shopify draft orders per buyer.
+    if (config.enableWrites) registerEbayMergeTools(server, client, ebayClient, config);
   }
 
   // Automated auction engine controls (status + manual cycle triggers).
