@@ -229,6 +229,34 @@ export class AuctionEngine {
     return { soldMatched: matched, closed };
   }
 
+  /**
+   * Standing check: scan recent orders for line items with NO SKU — manual/lot
+   * sales that can't auto-sync to Shopify — and record them so they're not
+   * missed. Logs a warning when any are found and stores the findings in meta
+   * (surfaced on the /status dashboard).
+   */
+  async checkNoSkuSales(sinceDays = 1): Promise<{ findings: Array<{ orderId: string; buyer: string | null; title: string; total: string | null }> }> {
+    const now = this.nowMs();
+    const since = new Date(now - sinceDays * DAY_MS).toISOString();
+    const findings: Array<{ orderId: string; buyer: string | null; title: string; total: string | null }> = [];
+    let offset = 0;
+    for (let page = 0; page < 20; page++) {
+      const res = await this.ebay.request("GET", "/sell/fulfillment/v1/order", { query: { filter: `creationdate:[${since}..]`, limit: 200, offset } }).catch(() => null);
+      const orders = (res?.data as { orders?: Array<{ orderId?: string; buyer?: { username?: string }; pricingSummary?: { total?: { value?: string } }; lineItems?: Array<{ sku?: string; title?: string }> }> } | undefined)?.orders ?? [];
+      for (const o of orders) {
+        for (const li of o.lineItems ?? []) {
+          if (!li.sku) findings.push({ orderId: o.orderId ?? "", buyer: o.buyer?.username ?? null, title: li.title ?? "(untitled)", total: o.pricingSummary?.total?.value ?? null });
+        }
+      }
+      if (orders.length < 200) break;
+      offset += 200;
+    }
+    this.store.setMeta({ lastNoSkuCheckAtMs: now, noSkuFindings: findings });
+    if (findings.length) log.warn("auction_nosku_sales_found", { count: findings.length, orders: [...new Set(findings.map((f) => f.orderId))] });
+    else log.info("auction_nosku_check_clear");
+    return { findings };
+  }
+
   /** Phase 3: adapt floors from performance; Phase 4: optional LLM review. */
   async reviewAndAdapt(apply = this.config.auction.autoApplyFloors): Promise<{ changes: Array<{ coverType: string; from: number; to: number; reason: string }>; review: string | null }> {
     const now = this.nowMs();

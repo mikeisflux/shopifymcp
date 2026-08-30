@@ -69,6 +69,16 @@ export function registerAuctionMachineTools(server: McpServer, engine: AuctionEn
   );
 
   server.registerTool(
+    "ebay_auction_nosku_check",
+    { title: "Check for no-SKU sales now", description: "Scan recent eBay orders for line items with no SKU (manual/lot sales that can't auto-sync to Shopify) and record the findings. Runs automatically daily; this triggers it on demand.", inputSchema: { sinceDays: z.number().int().min(1).max(60).default(1) }, annotations: WRITE },
+    (async (args: { sinceDays: number }) => wrap("ebay_auction_nosku_check", async () => {
+      const r = await engine.checkNoSkuSales(args.sinceDays);
+      const head = r.findings.length ? `⚠️ ${r.findings.length} no-SKU line(s) found in the last ${args.sinceDays} day(s).` : `No no-SKU sales in the last ${args.sinceDays} day(s).`;
+      return { md: `${head}\n\n\`\`\`json\n${JSON.stringify(r.findings, null, 2).slice(0, 12000)}\n\`\`\``, data: { count: r.findings.length, findings: r.findings } };
+    })()) as never,
+  );
+
+  server.registerTool(
     "ebay_auction_set_floor",
     { title: "Set an auction floor", description: "Manually set the start-price floor for a cover type (RM, GITD, M, F, REG). Overrides the adaptive value until the engine next adjusts it.", inputSchema: { coverType: z.string().describe("RM | GITD | M | F | REG"), price: z.number().positive() }, annotations: WRITE },
     (async (args: { coverType: string; price: number }) => wrap("ebay_auction_set_floor", async () => {

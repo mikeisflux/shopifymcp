@@ -18,8 +18,10 @@ export class AuctionScheduler {
     this.every(this.cfg.ingestIntervalMin, "ingest", () => this.engine.ingestSales());
     this.every(this.cfg.reviewIntervalMin, "review", () => this.engine.reviewAndAdapt());
     this.every(this.cfg.listIntervalMin, "list", () => this.engine.listBatch());
+    // Standing daily check: flag sold-but-no-SKU (manual/lot) sales.
+    this.every(this.cfg.noSkuCheckIntervalMin, "nosku", () => this.engine.checkNoSkuSales());
     log.info("auction_scheduler_started", {
-      list_min: this.cfg.listIntervalMin, ingest_min: this.cfg.ingestIntervalMin, review_min: this.cfg.reviewIntervalMin, batch: this.cfg.batchSize,
+      list_min: this.cfg.listIntervalMin, ingest_min: this.cfg.ingestIntervalMin, review_min: this.cfg.reviewIntervalMin, nosku_min: this.cfg.noSkuCheckIntervalMin, batch: this.cfg.batchSize,
     });
   }
 

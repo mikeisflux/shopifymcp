@@ -33,6 +33,7 @@ import { logToolCall } from "../logger.js";
 import { textContent, gidToId } from "../format.js";
 import { DAY_MS, zonedDayStartToUtc } from "../tz.js";
 import { resolveSkus } from "./batch-lookups.js";
+import { ebayLineUnitPrice } from "./ebay-listing.js";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
@@ -90,6 +91,23 @@ const NAME_CUSTOMER = /* GraphQL */ `
   mutation NameMergeCustomer($input: CustomerInput!) {
     customerUpdate(input: $input) {
       customer { id displayName }
+      userErrors { field message }
+    }
+  }
+`;
+
+const ORDERS_BY_EMAIL = /* GraphQL */ `
+  query SyncedSourceOrders($query: String!) {
+    orders(first: 50, query: $query, sortKey: CREATED_AT) {
+      nodes { id name closed lineItems(first: 100) { nodes { sku } } }
+    }
+  }
+`;
+
+const CLOSE_ORDER = /* GraphQL */ `
+  mutation CloseSyncedOrder($input: OrderCloseInput!) {
+    orderClose(input: $input) {
+      order { id name closed }
       userErrors { field message }
     }
   }
@@ -221,13 +239,14 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
         excludeBuyerUsernames: z.array(z.string()).optional().describe("eBay usernames to skip entirely (e.g. wholesale accounts handled manually)."),
         separateFromExistingDrafts: z.boolean().default(true).describe("true (default, safe): always create a NEW draft for the buyer. false: append the day's line items to the buyer's existing open merge draft instead."),
         priceSource: z.enum(["ebay", "catalog"]).default("ebay").describe("\"ebay\" (default): every line is priced at what the buyer actually paid on eBay — SKU'd lines still link to their variant but carry a price override to the eBay sale price, so the draft total matches what was collected. \"catalog\": SKU'd lines use the variant's current Shopify list price instead. No-SKU lines always use the eBay price either way."),
+        closeSourceIfSynced: z.boolean().default(false).describe("If true, after merging a buyer, close (archive — reversible) the auto-synced Shopify orders that duplicate the same sale (matched by buyer email + shared SKU within the range), so the draft order is the single source of truth. dryRun only reports which orders would close."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     (async (args: {
       dateFrom: string; dateTo: string; minOrdersToMerge: number; dryRun: boolean;
       noteTag?: string; excludeBuyerUsernames?: string[]; separateFromExistingDrafts: boolean;
-      priceSource: "ebay" | "catalog";
+      priceSource: "ebay" | "catalog"; closeSourceIfSynced: boolean;
     }) => {
       const start = Date.now();
       try {
@@ -325,7 +344,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
 
           for (const li of g.lineItems) {
             const qty = li.quantity ?? 1;
-            const unit = unitPrice(li);
+            const unit = ebayLineUnitPrice(li).amount;
             const currency = li.lineItemCost?.currency ?? g.currency;
             if (li.sku) {
               const v = skuMap.get(li.sku);
@@ -386,8 +405,13 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
             continue;
           }
 
+          const groupSkus = g.lineItems.map((li) => li.sku).filter((s): s is string => Boolean(s));
+          const closeSrc = async (dry: boolean) =>
+            args.closeSourceIfSynced ? await closeSyncedSourceOrders(shopify, g.email ?? undefined, groupSkus, args.dateFrom, args.dateTo, dry) : { closed: [], wouldClose: [] };
+
           if (args.dryRun) {
-            merged.push({ ...plan, draftOrderName: null, draftOrderId: null, customerId: null, customerLinked: g.email ? "would-link" : "skipped-no-email", action: args.separateFromExistingDrafts ? "would-create" : "would-append-or-create" });
+            const cs = await closeSrc(true);
+            merged.push({ ...plan, draftOrderName: null, draftOrderId: null, customerId: null, customerLinked: g.email ? "would-link" : "skipped-no-email", wouldCloseSourceOrders: args.closeSourceIfSynced ? cs.wouldClose : undefined, action: args.separateFromExistingDrafts ? "would-create" : "would-append-or-create" });
             continue;
           }
 
@@ -398,7 +422,8 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
             if (existingAny) {
               const draft = await appendToDraft(shopify, existingAny.id, lineItemsInput, note, g.email ?? undefined);
               const link = await ensureCustomerNamed(shopify, draft.customer, g.email ?? undefined, g.buyerName ?? undefined);
-              merged.push({ ...plan, draftOrderName: draft.name, draftOrderId: gidToId(draft.id), total: draft.totalPriceSet?.shopMoney.amount ?? null, ...link, action: "appended" });
+              const cs = await closeSrc(false);
+              merged.push({ ...plan, draftOrderName: draft.name, draftOrderId: gidToId(draft.id), total: draft.totalPriceSet?.shopMoney.amount ?? null, ...link, closedSourceOrders: args.closeSourceIfSynced ? cs.closed : undefined, action: "appended" });
               continue;
             }
           }
@@ -411,8 +436,9 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
           assertNoUserErrors(res.data.draftOrderCreate.userErrors);
           const draft = res.data.draftOrderCreate.draftOrder!;
           const link = await ensureCustomerNamed(shopify, draft.customer, g.email ?? undefined, g.buyerName ?? undefined);
+          const cs = await closeSrc(false);
           openDrafts.push({ id: draft.id, name: draft.name, note2: note });
-          merged.push({ ...plan, draftOrderName: draft.name, draftOrderId: gidToId(draft.id), total: draft.totalPriceSet?.shopMoney.amount ?? null, ...link, action: "created" });
+          merged.push({ ...plan, draftOrderName: draft.name, draftOrderId: gidToId(draft.id), total: draft.totalPriceSet?.shopMoney.amount ?? null, ...link, closedSourceOrders: args.closeSourceIfSynced ? cs.closed : undefined, action: "created" });
         }
 
         const summary = {
@@ -441,12 +467,37 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
   );
 }
 
-/** eBay lineItemCost is the cost for the line's quantity; derive a per-unit price. */
-function unitPrice(li: EbayLineItem): string {
-  const total = Number(li.lineItemCost?.value ?? 0) || 0;
-  const qty = li.quantity ?? 1;
-  const unit = qty > 0 ? total / qty : total;
-  return unit.toFixed(2);
+/**
+ * Optionally close ("archive") the auto-synced Shopify orders that duplicate a
+ * buyer's merged eBay sales, so the draft order is the single source of truth.
+ * Conservative match: same buyer email, created in the merge window, sharing at
+ * least one SKU with the merged lines. Reversible (orderClose archives; it can
+ * be reopened). dryRun only reports what would be closed.
+ */
+async function closeSyncedSourceOrders(
+  shopify: ShopifyClient,
+  email: string | undefined,
+  skus: string[],
+  fromLocalDate: string,
+  toLocalDate: string,
+  dryRun: boolean,
+): Promise<{ closed: string[]; wouldClose: string[] }> {
+  const closed: string[] = [];
+  const wouldClose: string[] = [];
+  if (!email) return { closed, wouldClose };
+  const skuSet = new Set(skus.filter(Boolean));
+  const query = `email:${email} created_at:>=${fromLocalDate} created_at:<=${toLocalDate}`;
+  const res = await shopify.request<{ orders: { nodes: Array<{ id: string; name: string; closed: boolean; lineItems: { nodes: Array<{ sku: string | null }> } }> } }>(ORDERS_BY_EMAIL, { query }).catch(() => null);
+  const orders = res?.data.orders.nodes ?? [];
+  for (const o of orders) {
+    if (o.closed) continue;
+    const shares = o.lineItems.nodes.some((li) => li.sku && skuSet.has(li.sku));
+    if (!shares) continue;
+    if (dryRun) { wouldClose.push(o.name); continue; }
+    const c = await shopify.request<{ orderClose: { userErrors: Array<{ field: string[] | null; message: string }> } }>(CLOSE_ORDER, { input: { id: o.id } }).catch(() => null);
+    if (c && c.data.orderClose.userErrors.length === 0) closed.push(o.name);
+  }
+  return { closed, wouldClose };
 }
 
 /** Append line items to an existing draft (draftOrderUpdate replaces the set, so we re-send existing + new). */

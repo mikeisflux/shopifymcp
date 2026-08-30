@@ -14,6 +14,17 @@ export function cleanImageUrl(url: string): string {
   return q === -1 ? url : url.slice(0, q);
 }
 
+/**
+ * Per-unit price for an eBay Fulfillment line item. `lineItemCost` is the cost
+ * for the line's quantity, so divide it out. Returns a 2-dp amount + currency.
+ */
+export function ebayLineUnitPrice(li: { quantity?: number; lineItemCost?: { value?: string; currency?: string } }): { amount: string; currency: string } {
+  const total = Number(li.lineItemCost?.value ?? 0) || 0;
+  const qty = li.quantity ?? 1;
+  const unit = qty > 0 ? total / qty : total;
+  return { amount: unit.toFixed(2), currency: li.lineItemCost?.currency ?? "USD" };
+}
+
 export interface PublishAuctionParams {
   sku: string;
   title: string;

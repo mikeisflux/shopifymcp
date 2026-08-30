@@ -272,115 +272,240 @@ instead of using Cloudflare Tunnel. This is **described here but not implemented
 
 ## Tools reference
 
-All tools are prefixed `shopify_`. Every tool has a Zod-validated input schema (with descriptions),
-cursor pagination on lists (`first` default 25, max 100; `after` cursor), and MCP annotations
-(`readOnlyHint` / `destructiveHint` / `idempotentHint`).
+Every tool has a Zod-validated input schema (with per-field descriptions), and MCP annotations
+(`readOnlyHint` / `destructiveHint` / `idempotentHint`). Responses return **Markdown text** for
+readability plus **`structuredContent`** with the raw shaped data. Shopify GID strings
+(`gid://shopify/Product/123`) are converted to plain numeric ids in output; either form is accepted
+in input. Lists use cursor pagination (`first` default 25, max 100; `after` cursor).
 
-Responses return **Markdown text** for readability plus **`structuredContent`** with the raw shaped
-data. Shopify GID strings (`gid://shopify/Product/123`) are converted to plain numeric ids in output;
-either form is accepted in input. Long lists are truncated with a note.
+**Enablement & safety at a glance:**
 
-### Read tools (always enabled)
+- **Read** tools (get / list / search) are **always on**.
+- **Write** tools (create / update / delete / bulk / normalize) require **`ENABLE_WRITES=true`**.
+- **eBay** tools require `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET`; the cross-service **workflow** tools
+  and the **auction** controls require both Shopify writes **and** eBay creds.
+- Destructive and all eBay-write tools default to **`dryRun:true`** — they echo the planned call and
+  do nothing until you pass `dryRun:false`.
 
-| Tool | Description |
-|---|---|
-| `shopify_list_products` | Filter by query, status, or collection. Returns id, title, status, handle, variant count, price range. |
-| `shopify_get_product` | Full product incl. variants (SKUs, prices, inventory qty, policy, tracking), options, media (with ids), SEO, and metafields. |
-| `shopify_list_orders` | Filter by status, financial status, fulfillment status, created-at range, query. |
-| `shopify_get_order` | Line items w/ SKUs, shipping address, fulfillments + tracking, transactions summary. |
-| `shopify_list_customers` | Search customers; returns order count and total spent. |
-| `shopify_get_customer` | Order count, lifetime spend, tags, default address. |
-| `shopify_list_draft_orders` | Filter by status. |
-| `shopify_get_draft_order` | Line items, totals, customer, invoice URL. |
-| `shopify_list_collections` | Smart + custom collections, with product counts. |
-| `shopify_get_inventory_levels` | By SKU or inventory item, across locations (available/on-hand/committed). |
-| `shopify_search` | Quick cross-resource search (products, orders, customers). |
-| `shopify_list_publications` | List sales channels (publications) with ids. Needs `read_publications`. |
-| `shopify_list_menus` | List navigation menus with their full item trees (up to 3 levels). Needs `read_online_store_navigation`. |
-| `shopify_graphql_query` | Escape hatch: run an arbitrary **read-only** GraphQL query. Rejects any string containing a `mutation`. |
-| `shopify_graphql_mutation` | **Write escape hatch:** run an arbitrary Admin GraphQL **mutation**. Rejects read queries, requires a `userErrors` selection and surfaces non-empty `userErrors` as an error, rejects bare numeric IDs (needs GIDs). `dryRun` defaults on. |
-| `shopify_list_metaobjects` / `shopify_get_metaobject` / `shopify_list_metaobject_definitions` | Read metaobject entries (by type, or one by id/handle) and their definitions/schemas. |
-| `shopify_create_metaobject` / `shopify_update_metaobject` / `shopify_delete_metaobject` | Full CRUD for metaobject entries (custom content records), with optional publish status. |
-| `shopify_bulk_set_product_status` | **Bulk:** set ACTIVE/DRAFT/ARCHIVED across productIds, a collection, or a productType in one call. `dryRun` defaults on. |
-| `shopify_get_collection` / `shopify_reorder_collection_products` / `shopify_set_collection_image` | Read one collection's detail (incl. smart rules), reorder products in a manual collection, and set/clear its image. Complements the existing create/update/add/remove/delete collection tools. |
-| `shopify_list_url_redirects` / `shopify_create_url_redirect` / `shopify_delete_url_redirect` | Manage storefront URL redirects (e.g. after a handle change so old links don't 404). |
-| `shopify_edit_order` | Add variant / custom line items to an existing order (wraps the begin→add→commit flow). `dryRun` shows the recalculated total before committing. |
-| `shopify_create_return` | Open a return against fulfilled line items (by fulfillmentLineItemId, variantId, or SKU). `dryRun` echoes the resolved lines. |
-| `shopify_issue_store_credit` | Credit a customer's store-credit account. `dryRun` shows current → resulting balance. |
-| `shopify_list_themes` / `shopify_get_theme_files` | List themes with role (MAIN = live) and read theme file contents. |
-| `shopify_edit_theme_files` / `shopify_delete_theme_files` | Create/update/delete theme files (Liquid, JSON, assets). Editing the **live** theme requires `allowLiveTheme:true`; `dryRun` defaults on. Needs `write_themes` + a Shopify theme-edit exemption. |
-| `shopify_publish_theme` / `shopify_delete_theme` | Make a theme live (shows what it replaces), or delete a non-live theme. `dryRun` defaults on. |
-| `shopify_bulk_update_product_option` | **Bulk:** rename an option / its values across many products in one call (server-side loop over productOptionUpdate, throttled, per-item error capture, aggregated summary). |
-| `shopify_bulk_graphql_mutation` | **General bulk escape hatch:** run one mutation across many variable sets. Validates every op up front (mutation, userErrors, GIDs), then loops with throttling and captures per-item failures. |
-| `shopify_bulk_set_variant_weight` | **Bulk:** set the same weight + unit on every variant of a product / list / collection. Aggregated {productsProcessed, variantsUpdated, failed, failures}. |
-| `shopify_bulk_tag` | **Bulk:** add and/or remove tags across a product / list / **one or many collections** (ids or title-contains, deduped) / productType in one call. |
-| `shopify_bulk_split_variants_to_products` (**"Ebay Live Splitoff"**) | **Bulk/structural:** split every variant of every product in the source collection(s) into its own single-variant product (title/SKU + `-ebaylive` suffix, flat price, copied image, carried product_type; tags NOT copied by default), add all to a destination collection, and act on the originals — only after all a product's variants split. Cursor-paginated (`maxProducts`/`cursor` → `hasMore`/`nextCursor`) so oversized collections page across calls. **Idempotent** (`skipExisting`, default on): checks each split's SKU and skips if it already exists, so any re-run is safe. `dryRun` defaults on. |
+There are **153 tools**. They're grouped by domain below.
 
-### Write tools (only when `ENABLE_WRITES=true`)
-
-| Tool | Description |
-|---|---|
-| `shopify_create_product` | Create a product, incl. handle and SEO title/description (a default variant is created automatically). |
-| `shopify_update_product` | Partial product update: title, description, vendor, type, tags, handle, SEO, theme template, status. |
-| `shopify_duplicate_product` | Duplicate a product (copies variants, options, and optionally images) with a new title/status. |
-| `shopify_update_variant` | Update a variant's price, compare-at, SKU, inventory policy, inventory tracking, weight, requires-shipping, or **taxable**. |
-| `shopify_set_variant_taxable` | **Bulk:** mark every variant of a product or collection taxable/non-taxable in one call (e.g. flip a digital product tax-exempt). `dryRun` defaults on. |
-| `shopify_create_variant` | Add one or more variants (with option values) to an existing product. |
-| `shopify_reorder_option_values` | Set the display order of a product option's values (list order = position). |
-| `shopify_reset_handles` | **Bulk:** set each product's URL handle to slugify(title); skips already-correct, reports collisions (never auto-suffixes). No redirects created. `dryRun` defaults on. |
-| `shopify_bulk_adjust_prices` | **Bulk:** delta/percent/set variant prices across a collection, product(s), or productType; per-option-value overrides (e.g. GITD), optional compare-at, name/price exclusions. `dryRun` defaults on with a before/after plan. |
-| `shopify_normalize_print_variants` | **Bulk/domain:** bring art-print products to the standard P/FP/MP/MTC set (fixed titles/prices/weights, option "Style", value order, media on all variants, tracking off); leaves MAG untouched. `dryRun` defaults on; existing-variant repricing is flagged. |
-| `shopify_normalize_book_variants` | **Bulk/domain/destructive:** normalize book products to the 5-cover set, MERGING standalone sibling listings (Foil/Metal/GITD/RM) into the base product, carrying inventory across, then deleting the emptied sibling. Optional `excludeAbovePrice` (skip premium covers), name exclusion (`excludeNames`, defaults LTD/Exclusive/Sketch/Damaged/Pin-Up matched on title or option value), and per-cover `weights` (oz, applied to existing variants too). `dryRun` defaults on and reports deletes/inventory-moves/reprices/reweights separately; on execute a sibling is deleted only after its stock is verified on the new variant. |
-| `shopify_delete_variant` | Delete variants from a product (irreversible; a product keeps ≥1 variant). |
-| `shopify_add_product_media` | Add image(s) to a product from public URLs, with alt text. |
-| `shopify_assign_variant_media` | Attach product media to variants — one media to all variants, or explicit variant→media pairs. De-dupes, so re-runs are safe. |
-| `shopify_delete_product_media` | Remove media from a product by media id. |
-| `shopify_set_metafield` | Set/overwrite a metafield on a product or variant. |
-| `shopify_set_inventory_tracking` | **Bulk:** turn inventory tracking on/off for every variant of a product, or every product in a collection, in one call. Iterates + paginates server-side. |
-| `shopify_bulk_set_inventory_quantity` | **Bulk:** set the absolute available/on-hand quantity at a location for every variant of a product or collection. Reads current for compare-and-swap; auto-activates items not yet stocked there. |
-| `shopify_adjust_inventory` | Adjust available quantity at a location by a signed delta. |
-| `shopify_create_draft_order` | Line items by variant id or SKU, customer, shipping, discount. |
-| `shopify_complete_draft_order` | Turn a draft order into a real order. |
-| `shopify_create_discount_code` | Basic percentage/fixed code discount. |
-| `shopify_tag_resource` | Add/remove tags on a single product/order/customer/draft order, or in bulk on every product in a collection. |
-| `shopify_create_collection` | Create a manual collection, or a smart/automated one via a rule set. |
-| `shopify_update_collection` | Update a collection's title, description, handle, sort order, SEO, or smart rules. |
-| `shopify_add_products_to_collection` | Add products to a manual collection. |
-| `shopify_remove_products_from_collection` | Remove products from a manual collection (async job). |
-| `shopify_publish_resource` | Publish/unpublish products or a whole collection's products to sales channels (all or specific). Needs `write_publications`. |
-| `shopify_upsert_menu` | Create/update a navigation menu with a recursive item tree (link items to collections/products/URLs). Merge mode avoids replacing the whole menu. Needs `write_online_store_navigation`. |
-| `shopify_update_shipping_package` | Update a saved shipping package (name, type, weight, dimensions, default). Needs a shipping scope; package GID must be supplied (no list query exists in the API). |
-
-### eBay tools (only when `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET` are set)
-
-These talk to eBay's REST APIs rather than Shopify. The write tools default to `dryRun` (echo the
-request without sending it); pass `dryRun:false` to execute. `ebay_request` is the universal escape
-hatch — it can reach **any** eBay REST endpoint (Sell, Buy, Commerce, Account, Marketing, Feed,
-Analytics, …), so any management task the API allows is available even without a typed tool for it.
+### Products & variants
 
 | Tool | What it does |
 |---|---|
-| `ebay_test_connection` | Mint a token and call a lightweight endpoint to confirm credentials, grant type, and marketplace. |
-| `ebay_request` | **Universal escape hatch:** issue any REST call (`GET`/`POST`/`PUT`/`DELETE`) to any eBay API path, with optional query + JSON body. `GET` executes immediately; writes respect `dryRun` (defaults on). |
-| `ebay_get_inventory_item` / `ebay_get_inventory_items` | Read one inventory item (by SKU) or a paginated page of them (Sell Inventory API). |
-| `ebay_create_or_replace_inventory_item` | Create/replace an inventory item record (SKU, product details, availability). `dryRun` defaults on. |
-| `ebay_delete_inventory_item` | Delete an inventory item by SKU. `dryRun` defaults on. |
+| `shopify_list_products` | *(read)* Filter by query/status/collection; returns id, title, status, handle, variant count, price range. |
+| `shopify_get_product` | *(read)* Full product: variants (SKUs, prices, inventory, policy, tracking), options, media (with ids), SEO, metafields. |
+| `shopify_create_product` | Create a product incl. handle + SEO (a default variant is created automatically). |
+| `shopify_update_product` | Partial update: title, description, vendor, type, tags, handle, SEO, template, status. |
+| `shopify_duplicate_product` | Duplicate a product (variants, options, optionally images) with a new title/status. |
+| `shopify_delete_product` | Delete a product (irreversible). |
+| `shopify_create_variant` | Add one or more variants (with option values) to a product. |
+| `shopify_update_variant` | Update a variant's price, compare-at, SKU, inventory policy/tracking, weight, requires-shipping, taxable. |
+| `shopify_delete_variant` | Delete variants (a product keeps ≥1 variant). |
+| `shopify_set_variant_taxable` | **Bulk:** flip every variant of a product/collection taxable/non-taxable. |
+| `shopify_create_product_option` | Add a new option (e.g. Size) with values to a product. |
+| `shopify_update_product_option` | Rename a product option and/or its values. |
+| `shopify_delete_product_option` | Remove a product option. |
+| `shopify_reorder_option_values` | Set the display order of an option's values. |
+| `shopify_add_product_media` | Add image(s) from public URLs, with alt text. |
+| `shopify_delete_product_media` | Remove media from a product by media id. |
+| `shopify_assign_variant_media` | Attach product media to variants (one-to-all or explicit pairs); de-dupes. |
+| `shopify_set_metafield` | Set/overwrite a metafield on a product or variant. |
+| `shopify_reset_handles` | **Bulk:** set each product's handle to slugify(title); skips correct, reports collisions. |
+
+### Collections
+
+| Tool | What it does |
+|---|---|
+| `shopify_list_collections` | *(read)* Smart + custom collections with product counts. |
+| `shopify_get_collection` | *(read)* One collection's detail incl. smart rules. |
+| `shopify_create_collection` | Create a manual collection, or a smart one via a rule set. |
+| `shopify_update_collection` | Update title, description, handle, sort order, SEO, or smart rules. |
+| `shopify_delete_collection` | Delete a collection. |
+| `shopify_add_products_to_collection` | Add products to a manual collection. |
+| `shopify_remove_products_from_collection` | Remove products from a manual collection (async job). |
+| `shopify_reorder_collection_products` | Reorder products within a manual collection. |
+| `shopify_set_collection_image` | Set or clear a collection's image. |
+
+### Inventory & locations
+
+| Tool | What it does |
+|---|---|
+| `shopify_get_inventory_levels` | *(read)* By SKU/inventory item across locations (available/on-hand/committed). |
+| `shopify_list_locations` | *(read)* Store locations with ids. |
+| `shopify_adjust_inventory` | Adjust available quantity at a location by a signed delta. |
+| `shopify_set_inventory_quantity` | Set the absolute available/on-hand quantity for one item at a location. |
+| `shopify_bulk_set_inventory_quantity` | **Bulk:** set absolute quantity for every variant of a product/collection; auto-activates unstocked items. |
+| `shopify_set_inventory_tracking` | **Bulk:** turn tracking on/off for every variant of a product/collection. |
+| `shopify_activate_inventory` | Activate an inventory item at a location so it can carry stock. |
+
+### Orders & fulfillment
+
+| Tool | What it does |
+|---|---|
+| `shopify_list_orders` | *(read)* Filter by status, financial/fulfillment status, created-at range, query. |
+| `shopify_get_order` | *(read)* Line items w/ SKUs, shipping address, fulfillments + tracking, transactions. |
+| `shopify_update_order` | Update order note, tags, email, or shipping address. |
+| `shopify_edit_order` | Add variant/custom line items to an existing order (begin→add→commit); `dryRun` shows the recalculated total. |
+| `shopify_cancel_order` | Cancel an order (with reason; optional refund/restock). |
+| `shopify_close_order` | Close (archive) an order. |
+| `shopify_reopen_order` | Reopen a closed order. |
+| `shopify_mark_order_paid` | Mark an order as paid. |
+| `shopify_capture_order_payment` | Capture an authorized payment. |
+| `shopify_create_refund` | Refund line items and/or shipping (optional restock). |
+| `shopify_create_return` | Open a return against fulfilled lines (by fulfillmentLineItemId/variantId/SKU). |
+| `shopify_issue_store_credit` | Credit a customer's store-credit account; `dryRun` shows current→resulting balance. |
+| `shopify_fulfill_order` | Fulfill line items with optional tracking + customer notification. |
+| `shopify_update_fulfillment_tracking` | Update tracking number/URL/company on an existing fulfillment. |
+| `shopify_send_order_invoice` | Email the order invoice to the customer. |
+
+### Draft orders
+
+| Tool | What it does |
+|---|---|
+| `shopify_list_draft_orders` | *(read)* Filter by status. |
+| `shopify_get_draft_order` | *(read)* Line items, totals, customer, invoice URL. |
+| `shopify_create_draft_order` | Line items by variant id or SKU, customer, shipping, discount. |
+| `shopify_update_draft_order` | Update a draft's line items, customer, shipping, discount, or note. |
+| `shopify_complete_draft_order` | Turn a draft into a real order. |
+| `shopify_delete_draft_order` | Delete a draft order. |
+| `shopify_send_draft_order_invoice` | Email the draft-order invoice to the customer. |
+
+### Customers
+
+| Tool | What it does |
+|---|---|
+| `shopify_list_customers` | *(read)* Search customers; returns order count + total spent. |
+| `shopify_get_customer` | *(read)* Order count, lifetime spend, tags, default address. |
+| `shopify_create_customer` | Create a customer record. |
+| `shopify_update_customer` | Update a customer's details, tags, or address. |
+| `shopify_update_customer_marketing_consent` | Set email-marketing consent state. |
+| `shopify_send_customer_invite` | Email a customer an account-activation invite. |
+| `shopify_delete_customer` | Delete a customer. |
+
+### Discounts, gift cards & credit
+
+| Tool | What it does |
+|---|---|
+| `shopify_list_discounts` | *(read)* List code + automatic discounts. |
+| `shopify_create_discount_code` | Create a basic percentage/fixed code discount. |
+| `shopify_create_automatic_discount` | Create an automatic (no-code) discount. |
+| `shopify_deactivate_discount` | Deactivate a code or automatic discount. |
+| `shopify_create_gift_card` | Issue a gift card (value, optional customer + expiry). |
+| `shopify_update_gift_card` | Update a gift card's note/expiry/customer. |
+| `shopify_deactivate_gift_card` | Disable a gift card. |
+
+### Content, navigation, redirects & files
+
+| Tool | What it does |
+|---|---|
+| `shopify_list_blogs` | *(read)* List blogs. |
+| `shopify_create_blog` | Create a blog. |
+| `shopify_delete_blog` | Delete a blog. |
+| `shopify_list_articles` | *(read)* List blog articles. |
+| `shopify_create_article` | Create a blog article. |
+| `shopify_update_article` | Update a blog article. |
+| `shopify_delete_article` | Delete a blog article. |
+| `shopify_list_pages` | *(read)* List online-store pages. |
+| `shopify_create_page` | Create a page. |
+| `shopify_update_page` | Update a page. |
+| `shopify_delete_page` | Delete a page. |
+| `shopify_list_menus` | *(read)* Navigation menus with full item trees. Needs `read_online_store_navigation`. |
+| `shopify_upsert_menu` | Create/update a navigation menu with a recursive item tree (merge mode available). |
+| `shopify_delete_menu` | Delete a navigation menu. |
+| `shopify_list_url_redirects` | *(read)* List storefront URL redirects. |
+| `shopify_create_url_redirect` | Create a URL redirect (e.g. after a handle change). |
+| `shopify_delete_url_redirect` | Delete a URL redirect. |
+| `shopify_upload_file` | Upload a file to Files from a public URL. |
+| `shopify_delete_files` | Delete files by id. |
+| `shopify_list_publications` | *(read)* Sales channels (publications) with ids. Needs `read_publications`. |
+| `shopify_publish_resource` | Publish/unpublish products or a collection's products to sales channels. Needs `write_publications`. |
+
+### Metaobjects & metafields
+
+| Tool | What it does |
+|---|---|
+| `shopify_list_metaobject_definitions` | *(read)* Metaobject definitions/schemas. |
+| `shopify_list_metaobjects` | *(read)* Metaobject entries by type. |
+| `shopify_get_metaobject` | *(read)* One entry by id/handle. |
+| `shopify_create_metaobject` | Create a metaobject entry (optional publish status). |
+| `shopify_update_metaobject` | Update a metaobject entry. |
+| `shopify_delete_metaobject` | Delete a metaobject entry. |
+| `shopify_delete_metafield` | Delete a metafield from a resource. |
+
+### Themes
+
+| Tool | What it does |
+|---|---|
+| `shopify_list_themes` | *(read)* Themes with role (MAIN = live). |
+| `shopify_get_theme_files` | *(read)* Read theme file contents. |
+| `shopify_edit_theme_files` | Create/update theme files (Liquid/JSON/assets); live theme needs `allowLiveTheme:true`. |
+| `shopify_delete_theme_files` | Delete theme files. |
+| `shopify_publish_theme` | Make a theme live (shows what it replaces). |
+| `shopify_delete_theme` | Delete a non-live theme. |
+
+### Shop, shipping & escape hatches
+
+| Tool | What it does |
+|---|---|
+| `shopify_get_shop` | *(read)* Shop info (name, domains, currency, plan, features). |
+| `shopify_update_shipping_package` | Update a saved shipping package (name, type, weight, dimensions, default). |
+| `shopify_search` | *(read)* Quick cross-resource search (products, orders, customers). |
+| `shopify_graphql_query` | *(read)* Escape hatch: run an arbitrary read-only GraphQL query (rejects mutations). |
+| `shopify_graphql_mutation` | Write escape hatch: run an arbitrary Admin GraphQL mutation (requires `userErrors`, GIDs; `dryRun` on). |
+
+### Bulk & catalog-normalization tools
+
+| Tool | What it does |
+|---|---|
+| `shopify_bulk_set_product_status` | **Bulk:** set ACTIVE/DRAFT/ARCHIVED across productIds, a collection, or a productType. |
+| `shopify_bulk_adjust_prices` | **Bulk:** delta/percent/set prices across a collection/product(s)/type; per-option-value overrides; before/after plan. |
+| `shopify_bulk_tag` | **Bulk:** add/remove tags across a product / list / collection(s) / productType. |
+| `shopify_tag_resource` | Add/remove tags on a single product/order/customer/draft, or in bulk across a collection. |
+| `shopify_bulk_set_variant_weight` | **Bulk:** set the same weight+unit on every variant of a product/list/collection. |
+| `shopify_bulk_update_product_option` | **Bulk:** rename an option / its values across many products. |
+| `shopify_bulk_graphql_mutation` | **Bulk escape hatch:** run one mutation across many variable sets, validated up front, per-item errors. |
+| `shopify_normalize_print_variants` | **Domain:** bring art-print products to the standard P/FP/MP/MTC set (titles/prices/weights/option order/media/tracking). |
+| `shopify_normalize_book_variants` | **Domain/destructive:** normalize books to the 5-cover set, merging standalone Foil/Metal/GITD/RM siblings into the base and carrying inventory across. |
+| `shopify_bulk_split_variants_to_products` | **"Ebay Live Splitoff":** split every variant of every product in a collection into its own `-ebaylive` single-variant product; cursor-paginated; idempotent. |
+| `shopify_bulk_sync_variant_images` | Copy one product's primary image onto many targets (delete-then-add per target); skips already-in-sync and warns on unchanged source. |
+
+### eBay — core Sell/Inventory API
+
+These call eBay's REST APIs. `ebay_request` is the universal escape hatch — it reaches **any** eBay
+endpoint (Sell, Buy, Commerce, Account, Marketing, Feed, Analytics, …), so any API-supported task is
+available even without a typed tool. Write tools default to `dryRun:true`.
+
+| Tool | What it does |
+|---|---|
+| `ebay_test_connection` | Mint a token and call a lightweight endpoint to confirm creds, grant type, marketplace. |
+| `ebay_request` | **Universal escape hatch:** any REST call (GET/POST/PUT/DELETE) to any eBay path; writes respect `dryRun`. |
+| `ebay_listing_defaults` | Show the server's baked-in listing defaults (ship-from, business policies, category, condition, duration). |
+| `ebay_get_inventory_item` / `ebay_get_inventory_items` | Read one inventory item (by SKU) or a page of them. |
+| `ebay_create_or_replace_inventory_item` | Create/replace an inventory item record. |
+| `ebay_delete_inventory_item` | Delete an inventory item by SKU. |
 | `ebay_get_offer` / `ebay_get_offers` | Read one offer (by offerId) or all offers for a SKU. |
-| `ebay_create_offer` / `ebay_update_offer` | Create or update an offer (price, quantity, marketplace, listing policies) for a SKU. `dryRun` defaults on. |
-| `ebay_publish_offer` | Publish an offer to make the listing live. `dryRun` defaults on. |
-| `ebay_withdraw_offer` / `ebay_delete_offer` | End a published listing (withdraw) or delete an unpublished offer. `dryRun` defaults on. |
-| `ebay_bulk_update_price_quantity` | Bulk-update price and/or available quantity across many SKUs/offers in one call. `dryRun` defaults on. |
-| `ebay_get_inventory_locations` / `ebay_create_inventory_location` | List merchant/inventory locations, or create one (required before publishing offers). |
-| `ebay_upload_hosted_image` | Copy an external image (Shopify CDN URL) to eBay Picture Services (`i.ebayimg.com`) so it shows on **eBay Live**, not just the standard listing. |
-| `ebay_search_orders` | Search recent orders by keyword (line item titles), buyer name, SKU-presence (`noSkuOnly`), and total, within a date range in the **seller's local timezone** (`sinceDays`/`dateFrom`/`dateTo`). Paginates the Fulfillment API internally and returns compact summaries. |
-| `ebay_merge_sales_to_draft_orders` | Group a local day's eBay sales by buyer and create ONE Shopify draft order per buyer with ≥ `minOrdersToMerge` orders — SKUs resolved to variants, no-SKU listings kept as custom lines, shipping address from the eBay ship-to. `priceSource:"ebay"` (default) prices every line at the actual eBay sale price (variant lines keep their product link via a price override) so the draft total matches what was collected; `"catalog"` uses list price. Each draft is auto-linked to a Shopify customer via the buyer's eBay email (creating + naming a new customer from the eBay full name, or matching an existing one). Read-only against eBay; `dryRun` previews. A note marker makes re-runs safe (already-merged buyers are skipped). |
-| `shopify_reprice_order_lines_to_ebay` | Rewrite completed Shopify orders so each line shows the real eBay sale price (resolved from the note's eBay order ids or `sourceEbayOrderIds`), running the whole Order Editing cycle internally per order. `skipAlreadyFulfilledLines` (default) leaves fulfilled lines untouched — Shopify silently refuses to zero them, doubling the total. `dryRun` previews before/after totals. |
-| `shopify_resolve_skus` | Batch-resolve many SKUs (up to ~200) to Shopify variant GIDs — variant/product id, title, price, and optional inventory — preserving input order, with `found`/`reason` for misses. One call instead of a search + get per SKU. |
-| `ebay_check_listing_status` | Batch-check eBay listing status for many SKUs in one call: `active`/`ended`/`unpublished`/`no_offer`/`no_inventory_item`, plus offerId, listingId, and price. |
-| `ebay_relist_sold_covers` | End-to-end relist: take specific SKUs (or a collection's ended covers), clear stale inventory/offers, republish via the bulk lister, and return item numbers filtered to just the requested SKUs — with a distinct `alreadyActive` bucket. `dryRun` previews. |
-| `shopify_bulk_sync_variant_images` | Copy one product's primary image onto many target products' primary slot (delete-then-add per target) in one call, returning before/after media ids. Flags when the source image looks unchanged. `dryRun` previews. |
-| `shopify_duplicate_listing_for_extra_copies` | Create N extra copies of a single-variant listing (incrementing `F2`/`F3` suffix, same image/price). `destination` is required — `ebay_only` publishes auctions without touching the Shopify catalog; `shopify_and_ebay` also creates catalog products. `dryRun` previews titles/SKUs. |
-| `ebay_bulk_list_auctions` | **Bulk:** list every product in a Shopify collection as an eBay auction — Shopify price as the start price, the product's own image (eBay-hosted), auction/7-day, unique `[SKU]` titles. `dryRun` previews titles/prices + reports collisions; `skipExisting` avoids duplicates. |
+| `ebay_create_offer` / `ebay_update_offer` | Create or update an offer (price, quantity, marketplace, policies) for a SKU. |
+| `ebay_publish_offer` | Publish an offer to make the listing live. |
+| `ebay_withdraw_offer` / `ebay_delete_offer` | End a published listing (withdraw), or delete an unpublished offer. |
+| `ebay_bulk_update_price_quantity` | Bulk-update price and/or available quantity across many SKUs/offers (up to 25). |
+| `ebay_get_inventory_locations` / `ebay_create_inventory_location` | List merchant locations, or create one (required before publishing). |
+| `ebay_upload_hosted_image` | Copy an external image (Shopify CDN URL) to eBay Picture Services so it shows on **eBay Live**. |
+
+### eBay ↔ Shopify workflow tools
+
+Higher-level tools that span both platforms. All default to `dryRun:true` (or read-only preview).
+
+| Tool | What it does |
+|---|---|
+| `ebay_bulk_list_auctions` | **Bulk:** list every product in a Shopify collection as an eBay auction — Shopify price as the start price, the product's own eBay-hosted image, auction/7-day, unique `[SKU]` titles; reports title collisions; `skipExisting` avoids duplicates. |
+| `ebay_search_orders` | Search recent eBay orders by keyword (line item titles), buyer name, SKU-presence (`noSkuOnly`), and total, within a date range in the **seller's local timezone**; paginates the Fulfillment API internally, returns compact summaries. |
+| `ebay_merge_sales_to_draft_orders` | Group a local day's eBay sales by buyer and create one Shopify draft order per buyer with ≥ `minOrdersToMerge` orders — SKUs resolved to variants, no-SKU listings kept as custom lines, shipping address + customer auto-linked from the eBay buyer. `priceSource:"ebay"` (default) prices each line at what was actually paid (variant lines keep their link via a price override); `closeSourceIfSynced` archives duplicate auto-synced orders; a note marker makes re-runs safe. |
+| `shopify_reprice_order_lines_to_ebay` | Rewrite completed Shopify orders so each line shows the real eBay sale price (from the note's eBay order ids or `sourceEbayOrderIds`), running the whole Order-Editing cycle internally per order. `skipAlreadyFulfilledLines` (default) leaves fulfilled lines untouched (Shopify won't zero them → doubled total). `findCandidates` auto-discovers old orders to fix. |
+| `shopify_resolve_skus` | Batch-resolve many SKUs (up to ~200) to variant GIDs — variant/product id, title, price, optional inventory — preserving input order, with `found`/`reason` for misses. |
+| `ebay_check_listing_status` | Batch-check eBay listing status per SKU: `active` / `ended` / `unpublished` / `no_offer` / `no_inventory_item`, plus offerId, listingId, price. |
+| `ebay_relist_sold_covers` | End-to-end relist: take specific SKUs (or a collection's ended covers), clear stale offer/inventory, republish, and return item numbers filtered to just the requested SKUs, with a distinct `alreadyActive` bucket. |
+| `shopify_duplicate_listing_for_extra_copies` | Create N extra copies of a single-variant listing (incrementing `F2`/`F3` suffix, same image/price). `destination` is required — `ebay_only` publishes auctions without touching the catalog; `shopify_and_ebay` also creates products. |
 
 ### Automated auction engine
 
@@ -389,18 +514,28 @@ required — turning your `*ebaylive*` collections into a continuously-managed a
 persists to a docker volume at `/data` (`mcp-data`).
 
 - **Lists batches on a timer** from every collection whose title contains `AUTO_AUCTION_COLLECTION_MATCH`
-  (default `ebaylive`; set `book-` to restrict to books), publishing top performers first.
+  (default `ebaylive`), publishing top performers first.
 - **No duplicate live auctions** — a SKU is relisted only after its current auction closes.
 - **Ingests sold orders** (Fulfillment API), tracks per-cover-type sell-through + average sale price.
-- **Adapts the start-price floor per cover type** (RM/GITD/M/F/REG) within your hard min/max bounds:
-  strong sellers raise, weak sellers lower (never below the fee-aware minimum).
+- **Adapts the start-price floor per cover type** (RM/GITD/M/F/REG) within your hard min/max bounds.
+- **Standing daily no-SKU check** — flags manual/lot sales that can't auto-sync to Shopify.
 - **Optional nightly LLM review** (`AUTO_AUCTION_ANTHROPIC_API_KEY`) for a strategy narrative.
 
-Control/inspect it with the MCP tools: `ebay_auction_status`, `ebay_auction_list_now` (dryRun),
-`ebay_auction_ingest_sales`, `ebay_auction_review`, `ebay_auction_set_floor`. All settings are the
-`AUTO_AUCTION_*` env vars (see `.env.example`). Start with `AUTO_AUCTION_ENABLED=false` and a
-`dryRun` list to observe before going fully automatic, and set `AUTO_AUCTION_HARD_MIN_FLOORS` to your
-real cost + fees so automation can't sell at a loss.
+Control/inspect it with these tools:
+
+| Tool | What it does |
+|---|---|
+| `ebay_auction_status` | Active auctions, history, current adaptive floors, per-cover performance, last-cycle times, latest review. |
+| `ebay_auction_list_now` | Trigger one listing cycle now (`dryRun` previews the selection + start prices). |
+| `ebay_auction_ingest_sales` | Pull recent sold orders, mark auctions sold, reap closed ones into history. |
+| `ebay_auction_review` | Recompute performance and adapt floors within bounds; optional LLM narrative. `apply=false` previews. |
+| `ebay_auction_nosku_check` | Scan recent orders for no-SKU (manual/lot) sales and record findings. Runs daily automatically. |
+| `ebay_auction_set_floor` | Manually set the start-price floor for a cover type (RM/GITD/M/F/REG). |
+
+All settings are `AUTO_AUCTION_*` env vars (see `.env.example`). Start with `AUTO_AUCTION_ENABLED=false`
+and a `dryRun` list to observe before going fully automatic, and set `AUTO_AUCTION_HARD_MIN_FLOORS` to
+your real cost + fees so automation can't sell at a loss.
+
 
 ### Errors
 

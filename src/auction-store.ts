@@ -41,6 +41,8 @@ export interface AuctionState {
     lastReviewAtMs: number;
     lastReview: string | null;
     seededFloors: boolean;
+    lastNoSkuCheckAtMs?: number;
+    noSkuFindings?: Array<{ orderId: string; buyer: string | null; title: string; total: string | null }>;
   };
 }
 

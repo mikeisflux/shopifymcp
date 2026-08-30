@@ -104,6 +104,8 @@ export interface AuctionAutomationConfig {
   listIntervalMin: number;
   ingestIntervalMin: number;
   reviewIntervalMin: number;
+  /** Minutes between standing "did anything sell without a SKU?" checks (default daily). */
+  noSkuCheckIntervalMin: number;
   /** Auction duration in days. */
   durationDays: number;
   /** Initial start-price floor per cover type (seeds the persisted, adapting floors). */
@@ -277,6 +279,7 @@ export function loadConfig(): Config {
     listIntervalMin: Number.parseInt(optional("AUTO_AUCTION_LIST_INTERVAL_MIN") ?? "360", 10) || 360,
     ingestIntervalMin: Number.parseInt(optional("AUTO_AUCTION_INGEST_INTERVAL_MIN") ?? "120", 10) || 120,
     reviewIntervalMin: Number.parseInt(optional("AUTO_AUCTION_REVIEW_INTERVAL_MIN") ?? "1440", 10) || 1440,
+    noSkuCheckIntervalMin: Number.parseInt(optional("AUTO_AUCTION_NOSKU_CHECK_INTERVAL_MIN") ?? "1440", 10) || 1440,
     durationDays: Number.parseInt(optional("AUTO_AUCTION_DURATION_DAYS") ?? "7", 10) || 7,
     initialFloors: parseFloors("AUTO_AUCTION_FLOORS", { RM: 20, GITD: 30, M: 20, F: 15, REG: 5 }),
     hardMinFloors: parseFloors("AUTO_AUCTION_HARD_MIN_FLOORS", { RM: 10, GITD: 15, M: 10, F: 7, REG: 3 }),

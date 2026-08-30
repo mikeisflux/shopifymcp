@@ -17,6 +17,7 @@ import { EbayClient } from "../ebay-client.js";
 import type { Config } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent } from "../format.js";
+import { publishAuction, cleanImageUrl } from "./ebay-listing.js";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -76,19 +77,11 @@ function pickArtist(tags: string[]): string {
   return tags.find((t) => /\s/.test(t) && !/-books$/i.test(t) && !/-ebaylive$/i.test(t) && t.toLowerCase() !== "ebaylive") ?? "";
 }
 
-/** Strip the CDN query string — eBay's image fetcher fails on Shopify's `?v=…`. */
-function cleanImageUrl(url: string): string {
-  const q = url.indexOf("?");
-  return q === -1 ? url : url.slice(0, q);
-}
-
 function toGid(numericOrGid: string): string {
   return numericOrGid.startsWith("gid://") ? numericOrGid : `gid://shopify/Collection/${numericOrGid}`;
 }
 
 export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient, ebay: EbayClient, config: Config): void {
-  const d = config.ebayListing;
-
   server.registerTool(
     "ebay_bulk_list_auctions",
     {
@@ -162,57 +155,10 @@ export function registerEbayBulkTools(server: McpServer, shopify: ShopifyClient,
               }
             }
 
-            // Copy the image to eBay-hosted storage so it shows on eBay Live (not
-            // just the standard listing) with no manual crop.
-            let listingImage = imageUrl;
-            let imageHosted = false;
-            try {
-              listingImage = await ebay.uploadHostedPicture(imageUrl, sku);
-              imageHosted = true;
-            } catch (hostErr) {
-              if (args.requireHostedImage) {
-                failed.push({ sku, title, error: `image hosting failed (would be invisible on eBay Live): ${hostErr instanceof Error ? hostErr.message : String(hostErr)}` });
-                continue;
-              }
-              /* requireHostedImage:false → keep raw URL; imageHosted:false recorded below */
-            }
-
-            await ebay.request("PUT", `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
-              body: {
-                product: {
-                  title,
-                  description: `${title}. Published by ${vendor}. Brand new, unread, ungraded — shipped bagged & boarded.`,
-                  imageUrls: [listingImage],
-                  aspects: { "Series Title": [args.seriesLabel], Publisher: [vendor], Type: ["Comic Book"], Language: ["English"] },
-                },
-                condition: "NEW",
-                availability: { shipToLocationAvailability: { quantity: 1 } },
-                packageWeightAndSize: {
-                  weight: { value: args.weightLb, unit: "POUND" },
-                  packageType: "PACKAGE_THICK_ENVELOPE",
-                  dimensions: { length: 10, width: 7, height: 1, unit: "INCH" },
-                },
-              },
-            });
-
-            const offerRes = await ebay.request("POST", "/sell/inventory/v1/offer", {
-              body: {
-                sku,
-                marketplaceId: config.ebayMarketplaceId,
-                format: "AUCTION",
-                categoryId: d.categoryId,
-                merchantLocationKey: d.locationKey,
-                listingDuration: d.listingDuration,
-                listingPolicies: { fulfillmentPolicyId: d.fulfillmentPolicyId, paymentPolicyId: d.paymentPolicyId, returnPolicyId: d.returnPolicyId },
-                pricingSummary: { auctionStartPrice: { value: price, currency: "USD" } },
-              },
-            });
-            const offerId = (offerRes.data as { offerId?: string }).offerId;
-            if (!offerId) throw new Error("no offerId returned");
-
-            const pub = await ebay.request("POST", `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/publish`, {});
-            const itemId = (pub.data as { listingId?: string }).listingId ?? "";
-            listed.push({ sku, itemId, title, startPrice: price, imageHosted });
+            // Same proven recipe as the single-listing tools (hosted image →
+            // inventory item → auction offer → publish).
+            const pub = await publishAuction(ebay, config, { sku, title, price, imageUrl, seriesLabel: args.seriesLabel, vendor, weightLb: args.weightLb, requireHostedImage: args.requireHostedImage });
+            listed.push({ sku, itemId: pub.itemId, title, startPrice: price, imageHosted: pub.imageHosted });
             await sleep(150);
           } catch (err) {
             failed.push({ sku, title, error: err instanceof Error ? err.message : String(err) });

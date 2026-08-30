@@ -24,6 +24,7 @@ import { EbayClient } from "../ebay-client.js";
 import type { Config } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent, gidToId, toGid } from "../format.js";
+import { ebayLineUnitPrice } from "./ebay-listing.js";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,15 @@ const ORDER_FOR_REPRICE = /* GraphQL */ `
           discountedUnitPriceSet { shopMoney { amount currencyCode } }
         }
       }
+    }
+  }
+`;
+
+const RECENT_ORDERS_WITH_NOTES = /* GraphQL */ `
+  query RecentOrdersForReprice($query: String!, $after: String) {
+    orders(first: 100, after: $after, query: $query, sortKey: CREATED_AT, reverse: true) {
+      pageInfo { hasNextPage endCursor }
+      nodes { id note }
     }
   }
 `;
@@ -117,12 +127,20 @@ interface EbayLineItem {
 
 const DEFAULT_STAFF_NOTE = "Corrected line item pricing to match actual eBay sale price.";
 
-/** eBay lineItemCost is the cost for the line's quantity; derive a per-unit price. */
-function unitPrice(li: EbayLineItem): { amount: string; currency: string } {
-  const total = Number(li.lineItemCost?.value ?? 0) || 0;
-  const qty = li.quantity ?? 1;
-  const unit = qty > 0 ? total / qty : total;
-  return { amount: unit.toFixed(2), currency: li.lineItemCost?.currency ?? "USD" };
+/** Scan recent orders for ones whose note mentions eBay order ids (candidates to reprice). */
+async function findRepriceCandidates(shopify: ShopifyClient, sinceDays: number): Promise<string[]> {
+  const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const query = `created_at:>=${since}`;
+  const ids: string[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const res: { data: { orders: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string; note: string | null }> } } } =
+      await shopify.request(RECENT_ORDERS_WITH_NOTES, { query, after });
+    for (const o of res.data.orders.nodes) if (parseEbayOrderIds(o.note).length) ids.push(o.id);
+    if (!res.data.orders.pageInfo.hasNextPage) break;
+    after = res.data.orders.pageInfo.endCursor;
+  }
+  return ids;
 }
 
 /** Pull eBay order ids out of a Shopify order note (the merge tool's format + generic eBay ids). */
@@ -148,7 +166,7 @@ async function loadEbayPrices(
     if (!order || !order.lineItems) { failed.push(id); continue; }
     fetched.push(id);
     for (const li of order.lineItems) {
-      const price = unitPrice(li);
+      const price = ebayLineUnitPrice(li);
       if (li.sku && !bySku.has(li.sku)) bySku.set(li.sku, price);
       if (li.title && !byTitle.has(li.title)) byTitle.set(li.title, price);
     }
@@ -164,7 +182,9 @@ export function registerOrderRepriceTools(server: McpServer, shopify: ShopifyCli
       description:
         "Rewrite already-completed Shopify orders so every line shows the real eBay sale price instead of the Shopify catalog price. Resolves each line's eBay unit price (from sourceEbayOrderIds, or eBay order ids parsed from the Shopify order note) and runs the full Order Editing cycle (begin → zero line → add custom item at the eBay price → commit) internally, one call per order. skipAlreadyFulfilledLines (default true) leaves fulfilled lines untouched — Shopify silently refuses to zero them, which otherwise doubles the total. Read-only against eBay. dryRun (default true) previews before/after totals and per-line changes without committing.",
       inputSchema: {
-        orderIds: z.array(z.string()).min(1).describe("Shopify order ids (numeric or GID) to reprice."),
+        orderIds: z.array(z.string()).optional().describe("Shopify order ids (numeric or GID) to reprice. Optional when findCandidates is true."),
+        findCandidates: z.boolean().default(false).describe("Auto-discovery: instead of (or in addition to) orderIds, scan recent orders whose note mentions merged eBay order ids and reprice those — for orders created by hand before priceSource:ebay existed. Defaults to dryRun preview."),
+        candidateSinceDays: z.number().int().positive().default(30).describe("With findCandidates, how many days back to scan for candidate orders."),
         sourceEbayOrderIds: z.array(z.string()).optional().describe("Explicit eBay order ids to pull real prices from. If omitted, eBay order ids are parsed from each Shopify order's note."),
         dryRun: z.boolean().default(true).describe("true (default): preview per-line changes and before/after totals without writing. false: perform the order edits."),
         skipAlreadyFulfilledLines: z.boolean().default(true).describe("true (default, safe): leave already-fulfilled lines untouched (Shopify won't zero them; editing anyway doubles the total) and report them in linesSkippedFulfilled. false: attempt the edit anyway and report the resulting quantity."),
@@ -172,17 +192,26 @@ export function registerOrderRepriceTools(server: McpServer, shopify: ShopifyCli
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
-    (async (args: { orderIds: string[]; sourceEbayOrderIds?: string[]; dryRun: boolean; skipAlreadyFulfilledLines: boolean; staffNote?: string }) => {
+    (async (args: { orderIds?: string[]; findCandidates: boolean; candidateSinceDays: number; sourceEbayOrderIds?: string[]; dryRun: boolean; skipAlreadyFulfilledLines: boolean; staffNote?: string }) => {
       const start = Date.now();
       const results: Array<Record<string, unknown>> = [];
       try {
+        // Resolve the working set of order ids.
+        const orderIds = [...(args.orderIds ?? [])];
+        let discovered: string[] = [];
+        if (args.findCandidates) {
+          discovered = await findRepriceCandidates(shopify, args.candidateSinceDays);
+          for (const id of discovered) if (!orderIds.includes(id)) orderIds.push(id);
+        }
+        if (orderIds.length === 0) throw new Error(args.findCandidates ? "No candidate orders found (none in range had eBay order ids in their note)." : "Provide orderIds, or set findCandidates:true.");
+
         // Shared eBay price maps when explicit source ids are given for the whole batch.
         let sharedPrices: Awaited<ReturnType<typeof loadEbayPrices>> | null = null;
         if (args.sourceEbayOrderIds && args.sourceEbayOrderIds.length) {
           sharedPrices = await loadEbayPrices(ebay, args.sourceEbayOrderIds);
         }
 
-        for (const rawId of args.orderIds) {
+        for (const rawId of orderIds) {
           const orderGid = toGid("Order", rawId);
           const ores = await shopify.request<{ order: OrderData | null }>(ORDER_FOR_REPRICE, { id: orderGid });
           const order = ores.data.order;
@@ -303,6 +332,7 @@ export function registerOrderRepriceTools(server: McpServer, shopify: ShopifyCli
         const summary = {
           dryRun: args.dryRun,
           orders: results.length,
+          candidatesDiscovered: args.findCandidates ? discovered.length : undefined,
           totalLinesRepriced: results.reduce((s, r) => s + (Number(r.linesRepriced) || 0), 0),
           totalLinesSkippedFulfilled: results.reduce((s, r) => s + (Number(r.linesSkippedFulfilled) || 0), 0),
           results,
