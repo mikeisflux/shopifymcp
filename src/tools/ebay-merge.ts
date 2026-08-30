@@ -20,7 +20,8 @@
  * range:<from>..<to>` — which makes the tool safe to re-run: a buyer already
  * merged for the same range is detected and skipped rather than duplicated.
  *
- * Also registers `shopify_resolve_skus`, a batched SKU→variant resolver.
+ * SKU→variant resolution is delegated to the shared `resolveSkus` helper
+ * (see batch-lookups.ts), which also backs the standalone shopify_resolve_skus.
  */
 
 import { z } from "zod";
@@ -31,16 +32,9 @@ import type { Config } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent, gidToId } from "../format.js";
 import { DAY_MS, zonedDayStartToUtc } from "../tz.js";
+import { resolveSkus } from "./batch-lookups.js";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
-
-const RESOLVE_SKUS_BATCH = /* GraphQL */ `
-  query ResolveSkus($query: String!) {
-    productVariants(first: 250, query: $query) {
-      nodes { id sku price product { id title } }
-    }
-  }
-`;
 
 const OPEN_DRAFTS = /* GraphQL */ `
   query OpenDrafts($after: String) {
@@ -146,32 +140,6 @@ const COUNTRY_NAMES: Record<string, string> = {
   JP: "Japan",
 };
 
-/** Escape a SKU for use inside a Shopify search query quoted value. */
-function escapeSkuValue(sku: string): string {
-  return sku.replace(/["\\]/g, "\\$&");
-}
-
-/** Batch-resolve SKUs to variant GIDs. Returns a map of sku → {id, price, title}. */
-async function resolveSkus(
-  shopify: ShopifyClient,
-  skus: string[],
-): Promise<Map<string, { id: string; price: string | null; title: string | null }>> {
-  const out = new Map<string, { id: string; price: string | null; title: string | null }>();
-  const unique = [...new Set(skus.filter(Boolean))];
-  const CHUNK = 40; // keep the OR-query string bounded
-  for (let i = 0; i < unique.length; i += CHUNK) {
-    const chunk = unique.slice(i, i + CHUNK);
-    const query = chunk.map((s) => `sku:"${escapeSkuValue(s)}"`).join(" OR ");
-    const res = await shopify.request<{
-      productVariants: { nodes: Array<{ id: string; sku: string | null; price: string | null; product: { title: string | null } | null }> };
-    }>(RESOLVE_SKUS_BATCH, { query });
-    for (const v of res.data.productVariants.nodes) {
-      if (v.sku && !out.has(v.sku)) out.set(v.sku, { id: v.id, price: v.price, title: v.product?.title ?? null });
-    }
-  }
-  return out;
-}
-
 /**
  * Split an eBay full name on the FIRST whitespace: everything before →
  * firstName, everything after → lastName. Single-word names (some business
@@ -237,43 +205,6 @@ async function ensureCustomerNamed(
 }
 
 export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient, ebay: EbayClient, config: Config): void {
-  // ─── Batched SKU resolver (read) ───────────────────────────────────────────
-  server.registerTool(
-    "shopify_resolve_skus",
-    {
-      title: "Resolve SKUs to variant IDs (batched)",
-      description:
-        "Batch-resolve many SKUs to Shopify ProductVariant GIDs in a single call (chunked OR-search internally), instead of one shopify_search + shopify_get_product round-trip per SKU. Returns, per input SKU, the variant id, product title, and catalog price — plus a list of SKUs that didn't match any variant.",
-      inputSchema: {
-        skus: z.array(z.string()).min(1).describe("SKU strings to resolve."),
-      },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-    },
-    (async (args: { skus: string[] }) => {
-      const start = Date.now();
-      try {
-        const map = await resolveSkus(shopify, args.skus);
-        const resolved: Record<string, { variantId: string; productTitle: string | null; price: string | null }> = {};
-        const unresolved: string[] = [];
-        for (const sku of [...new Set(args.skus.filter(Boolean))]) {
-          const v = map.get(sku);
-          if (v) resolved[sku] = { variantId: gidToId(v.id), productTitle: v.title, price: v.price };
-          else unresolved.push(sku);
-        }
-        const summary = { requested: args.skus.length, resolvedCount: Object.keys(resolved).length, unresolvedCount: unresolved.length, resolved, unresolved };
-        logToolCall({ tool: "shopify_resolve_skus", durationMs: Date.now() - start, success: true });
-        return {
-          content: [textContent(`Resolved ${summary.resolvedCount}/${summary.requested} SKU(s); ${unresolved.length} unmatched.\n\n\`\`\`json\n${JSON.stringify(summary, null, 2).slice(0, 12000)}\n\`\`\``)],
-          structuredContent: summary,
-        };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logToolCall({ tool: "shopify_resolve_skus", durationMs: Date.now() - start, success: false, error: message });
-        return { content: [textContent(`Error: ${message}`)], isError: true };
-      }
-    }) as never,
-  );
-
   // ─── Merge sales → draft orders (write) ────────────────────────────────────
   server.registerTool(
     "ebay_merge_sales_to_draft_orders",

@@ -42,6 +42,10 @@ import { EbayClient } from "./ebay-client.js";
 import { registerEbayTools } from "./tools/ebay.js";
 import { registerEbayBulkTools } from "./tools/ebay-bulk.js";
 import { registerEbayMergeTools } from "./tools/ebay-merge.js";
+import { registerOrderRepriceTools } from "./tools/order-reprice.js";
+import { registerBatchLookupTools } from "./tools/batch-lookups.js";
+import { registerProductImageTools } from "./tools/product-images.js";
+import { registerEbayListingWorkflowTools } from "./tools/ebay-relist.js";
 import { AuctionStore } from "./auction-store.js";
 import { AuctionEngine, coverLabel } from "./auction-engine.js";
 import { AuctionScheduler } from "./auction-scheduler.js";
@@ -248,7 +252,16 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
     if (config.enableWrites) registerEbayBulkTools(server, client, ebayClient, config);
     // Cross-service: merge a day's eBay sales into Shopify draft orders per buyer.
     if (config.enableWrites) registerEbayMergeTools(server, client, ebayClient, config);
+    // Cross-service: reprice completed Shopify orders to the real eBay sale price.
+    if (config.enableWrites) registerOrderRepriceTools(server, client, ebayClient, config);
+    // Batch lookup primitives (SKU→variant, eBay listing status).
+    registerBatchLookupTools(server, client, ebayClient);
+    // Higher-level listing workflows (relist sold covers, duplicate for copies).
+    if (config.enableWrites) registerEbayListingWorkflowTools(server, client, ebayClient, config);
   }
+
+  // Bulk product-image sync (Shopify-only; needs write access).
+  if (config.enableWrites) registerProductImageTools(server, client);
 
   // Automated auction engine controls (status + manual cycle triggers).
   if (auctionEngine && config.enableWrites) {
