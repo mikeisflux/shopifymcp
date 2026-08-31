@@ -300,7 +300,7 @@ export function loadConfig(): Config {
   };
 
   const trackingSync: TrackingSyncConfig = {
-    enabled: (optional("EBAY_TRACKING_SYNC_ENABLED") ?? "false").toLowerCase() === "true",
+    enabled: (optional("EBAY_TRACKING_SYNC_ENABLED") ?? "true").toLowerCase() === "true",
     intervalMin: Number.parseInt(optional("EBAY_TRACKING_SYNC_INTERVAL_MIN") ?? "5", 10) || 5,
     stateDir: optional("EBAY_TRACKING_SYNC_STATE_DIR") ?? optional("AUTO_AUCTION_STATE_DIR") ?? "/data",
   };

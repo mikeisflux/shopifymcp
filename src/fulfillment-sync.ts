@@ -102,14 +102,19 @@ export class FulfillmentSyncEngine {
   ) {
     const dir = config.trackingSync.stateDir;
     try { if (!existsSync(dir)) mkdirSync(dir, { recursive: true }); } catch { /* best-effort */ }
-    this.file = join(dir, "tracking-sync-state.json");
+    this.file = join(dir, "fulfillment-sync-state.json");
+    const existed = existsSync(this.file);
     this.state = this.load();
+    // Fresh install: anchor the watermark at "now" and persist, so the first
+    // scheduled run only picks up orders fulfilled after startup instead of
+    // backfilling the entire order history.
+    if (!existed) { this.state.watermark = new Date().toISOString(); this.save(); }
   }
 
   private load(): SyncState {
     try {
       if (existsSync(this.file)) return { watermark: null, lastRunAt: null, lastResults: null, ...JSON.parse(readFileSync(this.file, "utf8")) };
-    } catch (e) { log.warn("tracking_sync_state_load_failed", { error: e instanceof Error ? e.message : String(e) }); }
+    } catch (e) { log.warn("fulfillment_sync_state_load_failed", { error: e instanceof Error ? e.message : String(e) }); }
     return { watermark: null, lastRunAt: null, lastResults: null };
   }
 
@@ -145,12 +150,18 @@ export class FulfillmentSyncEngine {
     return out;
   }
 
-  /** Resolve which eBay order id(s) a Shopify order maps to (or null to skip). */
+  /**
+   * Resolve which eBay order id(s) a Shopify order maps to (or null to skip).
+   * Direct: the order name IS an eBay order id verbatim (`26-15065-57798`).
+   * Merged: any other order whose note lists eBay order ids (a merge-draft
+   * combining several eBay orders into one package) → all of them.
+   * A shopify_payments/manual order (`#12870`, no eBay ids in note) → null.
+   */
   private matchEbayOrders(o: ShopOrder): { ids: string[]; kind: "direct" | "merge" } | null {
+    const nameId = o.name.replace(/^#/, "");
+    if (EBAY_ORDER_ID_RE.test(nameId)) return { ids: [nameId], kind: "direct" };
     const noteIds = parseEbayOrderIds(o.note);
-    const isMerge = /ebay-merge/i.test(o.note ?? "") || /ebay orders \(/i.test(o.note ?? "");
-    if (isMerge && noteIds.length) return { ids: noteIds, kind: "merge" };
-    if (EBAY_ORDER_ID_RE.test(o.name.replace(/^#/, ""))) return { ids: [o.name.replace(/^#/, "")], kind: "direct" };
+    if (noteIds.length) return { ids: noteIds, kind: "merge" };
     return null;
   }
 
@@ -230,13 +241,3 @@ export class FulfillmentSyncEngine {
   }
 }
 
-/** Start the recurring tracking-sync scheduler (no-op when disabled). */
-export function startTrackingSyncScheduler(engine: FulfillmentSyncEngine, config: Config): NodeJS.Timeout | null {
-  if (!config.trackingSync.enabled) { log.info("tracking_sync_disabled"); return null; }
-  const ms = Math.max(1, config.trackingSync.intervalMin) * 60_000;
-  const tick = () => { void engine.run({ dryRun: false }).catch((e) => log.error("tracking_sync_cycle_failed", { error: e instanceof Error ? e.message : String(e) })); };
-  const timer = setInterval(tick, ms);
-  setTimeout(tick, 60_000); // first run a minute after boot
-  log.info("tracking_sync_started", { interval_min: config.trackingSync.intervalMin });
-  return timer;
-}

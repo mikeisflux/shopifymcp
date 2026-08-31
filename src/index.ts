@@ -49,7 +49,8 @@ import { registerEbayListingWorkflowTools } from "./tools/ebay-relist.js";
 import { AuctionStore } from "./auction-store.js";
 import { AuctionEngine, coverLabel } from "./auction-engine.js";
 import { AuctionScheduler } from "./auction-scheduler.js";
-import { FulfillmentSyncEngine, startTrackingSyncScheduler } from "./fulfillment-sync.js";
+import { FulfillmentSyncEngine } from "./fulfillment-sync.js";
+import { FulfillmentSyncScheduler } from "./fulfillment-sync-scheduler.js";
 import { registerFulfillmentSyncTools } from "./tools/fulfillment-sync.js";
 import { registerAuctionMachineTools } from "./tools/auction-machine.js";
 
@@ -308,9 +309,9 @@ function main(): void {
     const store = new AuctionStore(config.auction.stateDir);
     auctionEngine = new AuctionEngine(config, client, ebayClient, store);
     new AuctionScheduler(auctionEngine, config.auction).start();
-    // Shopify→eBay tracking sync engine + its own scheduler.
+    // Shopify→eBay tracking sync engine + its own (separate) scheduler.
     trackingEngine = new FulfillmentSyncEngine(client, ebayClient, config);
-    startTrackingSyncScheduler(trackingEngine, config);
+    new FulfillmentSyncScheduler(trackingEngine, config.trackingSync).start();
   }
   const app = express();
   app.use(express.json({ limit: "4mb" }));
