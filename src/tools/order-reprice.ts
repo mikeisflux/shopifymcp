@@ -26,6 +26,7 @@ import { logToolCall } from "../logger.js";
 import { textContent, gidToId, toGid } from "../format.js";
 import { ebayLineUnitPrice, customItemRequiresShipping } from "./ebay-listing.js";
 import { parseEbayOrderIds } from "../ebay-order-ids.js";
+import { isOrderLineEditable, isCalculatedLineEditable } from "../order-edit-safety.js";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
@@ -223,7 +224,7 @@ export function registerOrderRepriceTools(server: McpServer, shopify: ShopifyCli
             const curUnit = li.discountedUnitPriceSet?.shopMoney.amount ?? null;
             let action: PlanLine["action"];
             if (!ebayUnit) action = "unmatched";
-            else if (args.skipAlreadyFulfilledLines && li.unfulfilledQuantity < li.quantity) action = "skip-fulfilled";
+            else if (args.skipAlreadyFulfilledLines && !isOrderLineEditable(li)) action = "skip-fulfilled";
             else if (curUnit !== null && Number(curUnit).toFixed(2) === ebayUnit.amount) action = "already-correct";
             else action = "reprice";
             plan.push({ line: li, ebayUnit, action });
@@ -292,7 +293,7 @@ export function registerOrderRepriceTools(server: McpServer, shopify: ShopifyCli
             const bucket = calcByKey.get(key);
             const cl = bucket && bucket.shift();
             if (!cl) { failedLines.push({ title: p.line.title, error: "no matching calculated line" }); continue; }
-            if (args.skipAlreadyFulfilledLines && cl.editableQuantity < cl.quantity) { continue; } // guard: fulfilled
+            if (args.skipAlreadyFulfilledLines && !isCalculatedLineEditable(cl)) { continue; } // guard: fulfilled (shared safeguard)
             try {
               const setRes = await shopify.request<{ orderEditSetQuantity: { userErrors: Array<{ field: string[] | null; message: string }> } }>(ORDER_EDIT_SET_QTY, { id: calc.id, lineItemId: cl.id, quantity: 0 });
               assertNoUserErrors(setRes.data.orderEditSetQuantity.userErrors);
