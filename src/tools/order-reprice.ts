@@ -24,7 +24,7 @@ import { EbayClient } from "../ebay-client.js";
 import type { Config } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent, gidToId, toGid } from "../format.js";
-import { ebayLineUnitPrice } from "./ebay-listing.js";
+import { ebayLineUnitPrice, customItemRequiresShipping } from "./ebay-listing.js";
 import { parseEbayOrderIds } from "../ebay-order-ids.js";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
@@ -77,8 +77,8 @@ const ORDER_EDIT_SET_QTY = /* GraphQL */ `
 `;
 
 const ORDER_EDIT_ADD_CUSTOM = /* GraphQL */ `
-  mutation RepriceAddCustom($id: ID!, $title: String!, $price: MoneyInput!, $quantity: Int!) {
-    orderEditAddCustomItem(id: $id, title: $title, price: $price, quantity: $quantity) {
+  mutation RepriceAddCustom($id: ID!, $title: String!, $price: MoneyInput!, $quantity: Int!, $requiresShipping: Boolean!) {
+    orderEditAddCustomItem(id: $id, title: $title, price: $price, quantity: $quantity, requiresShipping: $requiresShipping) {
       calculatedLineItem { id }
       userErrors { field message }
     }
@@ -301,6 +301,9 @@ export function registerOrderRepriceTools(server: McpServer, shopify: ShopifyCli
                 title: p.line.title,
                 price: { amount: p.ebayUnit!.amount, currencyCode: p.ebayUnit!.currency },
                 quantity: p.line.quantity,
+                // Physical goods need requiresShipping:true explicitly — the custom
+                // item would otherwise default to false. Digital items keep false.
+                requiresShipping: customItemRequiresShipping(p.line.title, p.line.sku ?? p.line.variant?.sku),
               });
               assertNoUserErrors(addRes.data.orderEditAddCustomItem.userErrors);
               repricedOk++;

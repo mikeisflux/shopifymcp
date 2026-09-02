@@ -15,6 +15,19 @@ export function cleanImageUrl(url: string): string {
 }
 
 /**
+ * `requiresShipping` for a custom (non-variant) draft/order line item. Every
+ * custom item in this catalog is a physical good, so default TRUE — Shopify's
+ * own default of false is silently wrong for shippable goods. The only exception
+ * is genuinely digital products, recognized by "Digital" in the title or a
+ * `*pdf*` SKU (the catalog's boobs1pdf / boobs2pdf digital-download pattern).
+ */
+export function customItemRequiresShipping(title: string | null | undefined, sku?: string | null): boolean {
+  const t = (title ?? "").toLowerCase();
+  const s = (sku ?? "").toLowerCase();
+  return !(t.includes("digital") || s.includes("pdf"));
+}
+
+/**
  * Per-unit price for an eBay Fulfillment line item. `lineItemCost` is the cost
  * for the line's quantity, so divide it out. Returns a 2-dp amount + currency.
  */

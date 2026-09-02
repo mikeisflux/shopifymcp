@@ -33,7 +33,7 @@ import { logToolCall } from "../logger.js";
 import { textContent, gidToId } from "../format.js";
 import { DAY_MS, zonedDayStartToUtc } from "../tz.js";
 import { resolveSkus } from "./batch-lookups.js";
-import { ebayLineUnitPrice } from "./ebay-listing.js";
+import { ebayLineUnitPrice, customItemRequiresShipping } from "./ebay-listing.js";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ const DRAFT_LINE_ITEMS = /* GraphQL */ `
       id name note2
       lineItems(first: 250) {
         nodes {
-          title quantity sku
+          title quantity sku requiresShipping
           variant { id }
           originalUnitPriceSet { shopMoney { amount currencyCode } }
         }
@@ -338,7 +338,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
           // auction prices stays as two correctly-priced lines; in "catalog"
           // mode it's keyed by variantId alone (price comes from the catalog).
           const variantAgg = new Map<string, { variantId: string; sku: string; title: string | null; qty: number; unitPrice: string; catalogPrice: string | null; currency: string }>();
-          const customAgg = new Map<string, { title: string; unitPrice: string; qty: number }>();
+          const customAgg = new Map<string, { title: string; unitPrice: string; qty: number; requiresShipping: boolean }>();
           const unresolvedSkus: string[] = [];
           const noSkuItems: Array<{ title: string; price: string; qty: number }> = [];
 
@@ -356,15 +356,16 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
               } else {
                 if (!unresolvedSkus.includes(li.sku)) unresolvedSkus.push(li.sku);
                 // fall back to a custom line so nothing is silently dropped (always eBay price)
-                const key = `${li.title ?? li.sku}|${unit}`;
+                const title = li.title ?? li.sku;
+                const key = `${title}|${unit}`;
                 const c = customAgg.get(key);
-                if (c) c.qty += qty; else customAgg.set(key, { title: li.title ?? li.sku, unitPrice: unit, qty });
+                if (c) c.qty += qty; else customAgg.set(key, { title, unitPrice: unit, qty, requiresShipping: customItemRequiresShipping(title, li.sku) });
               }
             } else {
               const title = li.title ?? "Custom eBay item";
               const key = `${title}|${unit}`;
               const c = customAgg.get(key);
-              if (c) c.qty += qty; else customAgg.set(key, { title, unitPrice: unit, qty });
+              if (c) c.qty += qty; else customAgg.set(key, { title, unitPrice: unit, qty, requiresShipping: customItemRequiresShipping(title) });
               noSkuItems.push({ title, price: unit, qty });
             }
           }
@@ -376,7 +377,9 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
               if (args.priceSource === "ebay") line.priceOverride = { amount: v.unitPrice, currencyCode: v.currency };
               return line;
             }),
-            ...[...customAgg.values()].map((c) => ({ title: c.title, originalUnitPrice: c.unitPrice, quantity: c.qty })),
+            // Custom (no-variant) lines: physical goods need requiresShipping:true
+            // explicitly — Shopify defaults custom items to false.
+            ...[...customAgg.values()].map((c) => ({ title: c.title, originalUnitPrice: c.unitPrice, quantity: c.qty, requiresShipping: c.requiresShipping })),
           ];
 
           const address = toShopifyAddress(g.shipTo);
@@ -511,13 +514,15 @@ async function appendToDraft(
   const existing = await shopify.request<{
     draftOrder: {
       note2: string | null;
-      lineItems: { nodes: Array<{ title: string; quantity: number; sku: string | null; variant: { id: string } | null; originalUnitPriceSet: { shopMoney: { amount: string; currencyCode: string } } | null }> };
+      lineItems: { nodes: Array<{ title: string; quantity: number; sku: string | null; requiresShipping: boolean; variant: { id: string } | null; originalUnitPriceSet: { shopMoney: { amount: string; currencyCode: string } } | null }> };
     } | null;
   }>(DRAFT_LINE_ITEMS, { id: draftGid });
   const cur = existing.data.draftOrder;
   if (!cur) throw new ShopifyError(`Draft order ${draftGid} not found for append.`);
   // Re-send existing lines. For variant lines, preserve the effective unit price
   // via priceOverride so a prior eBay-sale price isn't reset to catalog on update.
+  // For custom lines, carry requiresShipping through so the update doesn't reset
+  // a physical item back to Shopify's false default.
   const rebuilt: Array<Record<string, unknown>> = cur.lineItems.nodes.map((li) => {
     const money = li.originalUnitPriceSet?.shopMoney;
     if (li.variant?.id) {
@@ -525,7 +530,7 @@ async function appendToDraft(
       if (money) line.priceOverride = { amount: money.amount, currencyCode: money.currencyCode };
       return line;
     }
-    return { title: li.title, originalUnitPrice: money?.amount ?? "0.00", quantity: li.quantity };
+    return { title: li.title, originalUnitPrice: money?.amount ?? "0.00", quantity: li.quantity, requiresShipping: li.requiresShipping };
   });
   const input: Record<string, unknown> = {
     lineItems: [...rebuilt, ...newLineItems],
