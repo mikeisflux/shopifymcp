@@ -38,28 +38,39 @@ export function ebayLineUnitPrice(li: { quantity?: number; lineItemCost?: { valu
   return { amount: unit.toFixed(2), currency: li.lineItemCost?.currency ?? "USD" };
 }
 
-export interface PublishAuctionParams {
+export interface PublishListingParams {
   sku: string;
   title: string;
   price: string;
   imageUrl: string;
   seriesLabel: string;
   vendor: string;
+  /** "AUCTION" (default) uses auctionStartPrice + a listing duration; "FIXED_PRICE"
+   *  (Buy It Now) uses a fixed price with availableQuantity and NO duration —
+   *  eBay forces Good 'Til Cancelled for fixed price regardless. */
+  format?: "AUCTION" | "FIXED_PRICE";
+  /** Available quantity for FIXED_PRICE listings (ignored for auctions). Default 1. */
+  quantity?: number;
   weightLb?: number;
   requireHostedImage?: boolean;
 }
 
-export interface PublishAuctionResult {
+export interface PublishListingResult {
   sku: string;
   itemId: string;
   offerId: string;
   imageHosted: boolean;
+  /** Distinct eBay warning messages returned by publishOffer (e.g. the monthly
+   *  listing-value note), so callers can summarize instead of failing. */
+  warnings: string[];
 }
 
-/** Create + publish one eBay auction for a SKU using the baked-in listing defaults. */
-export async function publishAuction(ebay: EbayClient, config: Config, p: PublishAuctionParams): Promise<PublishAuctionResult> {
+/** Create + publish one eBay listing (auction or fixed-price) using the baked-in defaults. */
+export async function publishListing(ebay: EbayClient, config: Config, p: PublishListingParams): Promise<PublishListingResult> {
   const d = config.ebayListing;
+  const format = p.format ?? "AUCTION";
   const weightLb = p.weightLb ?? 0.5;
+  const quantity = p.quantity ?? 1;
   const requireHostedImage = p.requireHostedImage ?? true;
   const cleanUrl = cleanImageUrl(p.imageUrl);
 
@@ -83,7 +94,7 @@ export async function publishAuction(ebay: EbayClient, config: Config, p: Publis
         aspects: { "Series Title": [p.seriesLabel], Publisher: [p.vendor], Type: ["Comic Book"], Language: ["English"] },
       },
       condition: "NEW",
-      availability: { shipToLocationAvailability: { quantity: 1 } },
+      availability: { shipToLocationAvailability: { quantity } },
       packageWeightAndSize: {
         weight: { value: weightLb, unit: "POUND" },
         packageType: "PACKAGE_THICK_ENVELOPE",
@@ -92,24 +103,33 @@ export async function publishAuction(ebay: EbayClient, config: Config, p: Publis
     },
   });
 
-  const offerRes = await ebay.request("POST", "/sell/inventory/v1/offer", {
-    body: {
-      sku: p.sku,
-      marketplaceId: config.ebayMarketplaceId,
-      format: "AUCTION",
-      categoryId: d.categoryId,
-      merchantLocationKey: d.locationKey,
-      listingDuration: d.listingDuration,
-      listingPolicies: { fulfillmentPolicyId: d.fulfillmentPolicyId, paymentPolicyId: d.paymentPolicyId, returnPolicyId: d.returnPolicyId },
-      pricingSummary: { auctionStartPrice: { value: p.price, currency: "USD" } },
-    },
-  });
+  const offerBody: Record<string, unknown> = {
+    sku: p.sku,
+    marketplaceId: config.ebayMarketplaceId,
+    format,
+    categoryId: d.categoryId,
+    merchantLocationKey: d.locationKey,
+    listingPolicies: { fulfillmentPolicyId: d.fulfillmentPolicyId, paymentPolicyId: d.paymentPolicyId, returnPolicyId: d.returnPolicyId },
+  };
+  if (format === "AUCTION") {
+    // Auctions take a listing duration and reject availableQuantity.
+    offerBody.listingDuration = d.listingDuration;
+    offerBody.pricingSummary = { auctionStartPrice: { value: p.price, currency: "USD" } };
+  } else {
+    // Fixed price: a set price + quantity, and NO listingDuration (eBay forces GTC).
+    offerBody.availableQuantity = quantity;
+    offerBody.pricingSummary = { price: { value: p.price, currency: "USD" } };
+  }
+
+  const offerRes = await ebay.request("POST", "/sell/inventory/v1/offer", { body: offerBody });
   const offerId = (offerRes.data as { offerId?: string }).offerId;
   if (!offerId) throw new Error("no offerId returned");
 
   const pub = await ebay.request("POST", `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/publish`, {});
-  const itemId = (pub.data as { listingId?: string }).listingId ?? "";
-  return { sku: p.sku, itemId, offerId, imageHosted };
+  const pubData = pub.data as { listingId?: string; warnings?: Array<{ message?: string }> } | undefined;
+  const itemId = pubData?.listingId ?? "";
+  const warnings = [...new Set((pubData?.warnings ?? []).map((w) => w.message).filter((m): m is string => Boolean(m)))];
+  return { sku: p.sku, itemId, offerId, imageHosted, warnings };
 }
 
 /**

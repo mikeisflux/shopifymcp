@@ -19,7 +19,7 @@ import { EbayClient } from "../ebay-client.js";
 import type { Config } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent, gidToId, toGid } from "../format.js";
-import { publishAuction, clearListing } from "./ebay-listing.js";
+import { publishListing, clearListing } from "./ebay-listing.js";
 import { checkListingStatus, escapeSkuValue } from "./batch-lookups.js";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -198,7 +198,7 @@ export function registerEbayListingWorkflowTools(server: McpServer, shopify: Sho
 
           try {
             const cleared = await clearListing(ebay, sku); // remove stale offer/inventory so republish is clean
-            const pub = await publishAuction(ebay, config, { sku, title, price, imageUrl, seriesLabel: titleBase, vendor: vars.vendor, weightLb: args.weightLb });
+            const pub = await publishListing(ebay, config, { sku, title, price, imageUrl, seriesLabel: titleBase, vendor: vars.vendor, weightLb: args.weightLb });
             relisted.push({ sku, itemNumber: pub.itemId, price, imageHosted: pub.imageHosted, cleared: cleared.deletedOffers.length || cleared.deletedInventoryItem ? cleared : undefined });
             await sleep(200);
           } catch (e) {
@@ -287,7 +287,7 @@ export function registerEbayListingWorkflowTools(server: McpServer, shopify: Sho
                 assertNoUserErrors(am.data.productCreateMedia.mediaUserErrors);
               }
             }
-            const pub = await publishAuction(ebay, config, { sku: c.sku, title: c.title, price, imageUrl: imageUrl!, seriesLabel: baseTitle, vendor, weightLb: args.weightLb });
+            const pub = await publishListing(ebay, config, { sku: c.sku, title: c.title, price, imageUrl: imageUrl!, seriesLabel: baseTitle, vendor, weightLb: args.weightLb });
             created.push({ sku: c.sku, title: c.title, itemNumber: pub.itemId, price, productId: productId ? gidToId(productId) : null, imageHosted: pub.imageHosted });
             await sleep(200);
           } catch (e) {
