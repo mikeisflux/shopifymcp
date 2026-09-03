@@ -34,6 +34,27 @@ export function zonedDayStartToUtc(dateStr: string, timeZone: string): Date {
   return new Date(guessUtc - offset);
 }
 
+/**
+ * Convert an inclusive local-date range (`YYYY-MM-DD`..`YYYY-MM-DD`) in
+ * `timeZone` to a UTC `[fromUtc, toUtc]` window, with the upper bound CAPPED at
+ * `now`. eBay's Fulfillment API rejects a window whose end is in the future
+ * ("The start and end dates can't be in the future [30850]"), which happens
+ * whenever `dateTo` is today — the naive end-of-day timestamp is still in the
+ * future until the day is over. Capping at now makes `dateTo: <today>` behave
+ * the same way a `sinceDays` query already does.
+ */
+export function localDateRangeToUtc(dateFrom: string, dateTo: string, timeZone: string, nowMs = Date.now()): { fromUtc: Date; toUtc: Date } {
+  const fromUtc = zonedDayStartToUtc(dateFrom, timeZone);
+  const endExclusive = zonedDayStartToUtc(dateTo, timeZone).getTime() + DAY_MS; // start of the day after dateTo
+  return { fromUtc, toUtc: new Date(Math.min(endExclusive, nowMs)) };
+}
+
+/** The wall-clock hour, minute, and `YYYY-MM-DD` date of `date` in `timeZone`. */
+export function zonedClock(date: Date, timeZone: string): { hour: number; minute: number; dateStr: string } {
+  const iso = toZonedIso(date, timeZone); // e.g. 2026-09-03T14:07:06-05:00
+  return { hour: Number(iso.slice(11, 13)), minute: Number(iso.slice(14, 16)), dateStr: iso.slice(0, 10) };
+}
+
 /** Format a UTC Date as an ISO-8601 string carrying `timeZone`'s local offset. */
 export function toZonedIso(date: Date, timeZone: string): string {
   const offset = tzOffsetMs(date, timeZone);

@@ -61,6 +61,8 @@ export interface Config {
   auction: AuctionAutomationConfig;
   /** Scheduled Shopify→eBay tracking sync. */
   trackingSync: TrackingSyncConfig;
+  /** Scheduled eBay→Shopify order import (twice-daily + optional frequent). */
+  orderSync: OrderSyncConfig;
 }
 
 export interface TrackingSyncConfig {
@@ -69,6 +71,21 @@ export interface TrackingSyncConfig {
   /** Minutes between sync runs. */
   intervalMin: number;
   /** Directory for the watermark/state file. */
+  stateDir: string;
+}
+
+export interface OrderSyncConfig {
+  /** Whether the scheduled eBay→Shopify order-import job runs. */
+  enabled: boolean;
+  /** IANA timezone the fixed run times are expressed in (DST-aware). */
+  timezone: string;
+  /** Hours-of-day (0-23, in `timezone`) to run the comprehensive sweep. */
+  times: number[];
+  /** How many days back each run covers (order-level dedup keeps overlap safe). */
+  lookbackDays: number;
+  /** Optional extra sweep every N minutes to catch brand-new sales (0 = off). */
+  frequentIntervalMin: number;
+  /** Directory for the state file. */
   stateDir: string;
 }
 
@@ -305,6 +322,20 @@ export function loadConfig(): Config {
     stateDir: optional("EBAY_TRACKING_SYNC_STATE_DIR") ?? optional("AUTO_AUCTION_STATE_DIR") ?? "/data",
   };
 
+  const parseTimes = (raw: string | undefined, fallback: number[]): number[] => {
+    if (!raw) return fallback;
+    const nums = raw.split(",").map((s) => Number.parseInt(s.trim(), 10)).filter((n) => Number.isInteger(n) && n >= 0 && n <= 23);
+    return nums.length ? nums : fallback;
+  };
+  const orderSync: OrderSyncConfig = {
+    enabled: (optional("EBAY_ORDER_SYNC_ENABLED") ?? "true").toLowerCase() === "true",
+    timezone: optional("EBAY_ORDER_SYNC_TIMEZONE") ?? "America/Chicago",
+    times: parseTimes(optional("EBAY_ORDER_SYNC_TIMES"), [8, 14]), // 8 AM & 2 PM CDT
+    lookbackDays: Number.parseInt(optional("EBAY_ORDER_SYNC_LOOKBACK_DAYS") ?? "2", 10) || 2,
+    frequentIntervalMin: Number.parseInt(optional("EBAY_ORDER_SYNC_FREQUENT_INTERVAL_MIN") ?? "0", 10) || 0,
+    stateDir: optional("EBAY_ORDER_SYNC_STATE_DIR") ?? optional("AUTO_AUCTION_STATE_DIR") ?? "/data",
+  };
+
   if (errors.length > 0) {
     throw new Error(
       `Invalid configuration. Fix the following environment variables:\n${errors.join("\n")}`,
@@ -338,5 +369,6 @@ export function loadConfig(): Config {
     ebayListing,
     auction,
     trackingSync,
+    orderSync,
   };
 }

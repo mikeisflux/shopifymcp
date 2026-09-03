@@ -31,7 +31,8 @@ import { EbayClient } from "../ebay-client.js";
 import type { Config } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent, gidToId } from "../format.js";
-import { DAY_MS, zonedDayStartToUtc } from "../tz.js";
+import { localDateRangeToUtc } from "../tz.js";
+import { parseEbayOrderIds } from "../ebay-order-ids.js";
 import { resolveSkus } from "./batch-lookups.js";
 import { ebayLineUnitPrice, customItemRequiresShipping } from "./ebay-listing.js";
 
@@ -229,7 +230,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
     {
       title: "Merge a day's eBay sales into draft orders",
       description:
-        "Group a local calendar day's eBay sales by buyer and create ONE Shopify draft order per buyer with ≥ minOrdersToMerge orders — resolving SKUs to variants, keeping no-SKU eBay listings as custom line items, and pulling the shipping address from the eBay ship-to. Read-only against eBay (never closes/refunds source orders); write-only against Shopify drafts. dryRun:true (default) returns the planned groupings without creating anything. Idempotent: a buyer already merged for the same range (detected via a marker in the draft note) is skipped, so it's safe to re-run.",
+        "Group a local calendar day's eBay sales by buyer and create ONE Shopify draft order per buyer with ≥ minOrdersToMerge orders — resolving SKUs to variants, keeping no-SKU eBay listings as custom line items, and pulling the shipping address from the eBay ship-to. Read-only against eBay (never closes/refunds source orders); write-only against Shopify drafts. dryRun:true (default) returns the planned groupings without creating anything. Idempotent: any eBay order already recorded in an open draft's note is skipped (order-level), so re-running an overlapping range never double-imports; dateTo may be today (the window is capped at now).",
       inputSchema: {
         dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Local start date YYYY-MM-DD (inclusive), in the seller's timezone."),
         dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Local end date YYYY-MM-DD (inclusive), in the seller's timezone. Same as dateFrom for a single day."),
@@ -243,11 +244,23 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    (async (args: {
-      dateFrom: string; dateTo: string; minOrdersToMerge: number; dryRun: boolean;
-      noteTag?: string; excludeBuyerUsernames?: string[]; separateFromExistingDrafts: boolean;
-      priceSource: "ebay" | "catalog"; closeSourceIfSynced: boolean;
-    }) => {
+    makeMergeHandler(shopify, ebay, config) as never,
+  );
+}
+
+export interface MergeArgs {
+  dateFrom: string; dateTo: string; minOrdersToMerge: number; dryRun: boolean;
+  noteTag?: string; excludeBuyerUsernames?: string[]; separateFromExistingDrafts: boolean;
+  priceSource: "ebay" | "catalog"; closeSourceIfSynced: boolean;
+}
+
+/**
+ * Factory for the merge handler — the single code path shared by the MCP tool
+ * and the scheduled order-sync job (which reads structuredContent for the run
+ * summary). Fixing a bug here fixes both.
+ */
+export function makeMergeHandler(shopify: ShopifyClient, ebay: EbayClient, config: Config) {
+  return async (args: MergeArgs) => {
       const start = Date.now();
       try {
         const tz = config.ebaySellerTimezone;
@@ -255,8 +268,8 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
         const noteTag = args.noteTag ?? rangeStr;
         const excluded = new Set((args.excludeBuyerUsernames ?? []).map((u) => u.toLowerCase()));
 
-        const fromUtc = zonedDayStartToUtc(args.dateFrom, tz);
-        const toUtc = new Date(zonedDayStartToUtc(args.dateTo, tz).getTime() + DAY_MS); // inclusive end
+        // Inclusive end, capped at now so dateTo:<today> isn't rejected as future.
+        const { fromUtc, toUtc } = localDateRangeToUtc(args.dateFrom, args.dateTo, tz);
         const filter = `creationdate:[${fromUtc.toISOString()}..${toUtc.toISOString()}]`;
 
         // 1. Pull all orders in the window.
@@ -270,7 +283,27 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
           offset += 200;
         }
 
-        // 2. Group by buyer username.
+        // 2a. Load open drafts once (for order-level dedup, resume-safety, append).
+        let openDrafts: Array<{ id: string; name: string; note2: string | null }> = [];
+        {
+          let after: string | null = null;
+          for (let page = 0; page < 5; page++) {
+            const res: { data: { draftOrders: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string; name: string; note2: string | null }> } } } =
+              await shopify.request(OPEN_DRAFTS, { after });
+            openDrafts.push(...res.data.draftOrders.nodes);
+            if (!res.data.draftOrders.pageInfo.hasNextPage) break;
+            after = res.data.draftOrders.pageInfo.endCursor;
+          }
+        }
+        // Order-level idempotency: every eBay order id already recorded in an
+        // open draft's note has been synced — never re-import it. This makes
+        // overlapping/repeated runs (a multi-day scheduled sweep re-covering
+        // yesterday, a human re-running a range) safe against double-import.
+        const syncedOrderIds = new Set<string>();
+        for (const d of openDrafts) for (const id of parseEbayOrderIds(d.note2)) syncedOrderIds.add(id);
+        let alreadySynced = 0;
+
+        // 2b. Group by buyer username.
         interface Group {
           username: string;
           buyerName: string | null;
@@ -283,6 +316,8 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
         }
         const groups = new Map<string, Group>();
         for (const o of orders) {
+          const oid = o.orderId ?? "";
+          if (oid && syncedOrderIds.has(oid)) { alreadySynced++; continue; } // already in a draft
           const username = o.buyer?.username ?? "";
           if (!username) continue;
           const shipTo = o.fulfillmentStartInstructions?.[0]?.shippingStep?.shipTo;
@@ -317,18 +352,6 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
         const allSkus = qualifying.flatMap((g) => g.lineItems.map((li) => li.sku).filter((s): s is string => Boolean(s)));
         const skuMap = allSkus.length ? await resolveSkus(shopify, allSkus) : new Map();
 
-        // 5. Load open drafts once (for resume-safety + optional append).
-        let openDrafts: Array<{ id: string; name: string; note2: string | null }> = [];
-        {
-          let after: string | null = null;
-          for (let page = 0; page < 5; page++) {
-            const res: { data: { draftOrders: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string; name: string; note2: string | null }> } } } =
-              await shopify.request(OPEN_DRAFTS, { after });
-            openDrafts.push(...res.data.draftOrders.nodes);
-            if (!res.data.draftOrders.pageInfo.hasNextPage) break;
-            after = res.data.draftOrders.pageInfo.endCursor;
-          }
-        }
 
         // 6. Build + (optionally) create a draft per qualifying buyer.
         const merged: Array<Record<string, unknown>> = [];
@@ -401,11 +424,17 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
             address: address ?? null,
           };
 
-          // Resume-safety: same-range marker already present → skip.
-          const existingSame = openDrafts.find((d) => (d.note2 ?? "").includes(marker));
-          if (existingSame) {
-            merged.push({ ...plan, draftOrderName: existingSame.name, draftOrderId: gidToId(existingSame.id), action: "already-merged (skipped)" });
-            continue;
+          // Resume-safety (separate/create mode only): same-range marker present
+          // → skip. In append mode this is unnecessary — order-level dedup above
+          // already removed synced orders, so any lines that remain are genuinely
+          // new and should be appended (this is how same-day stragglers get added
+          // to an existing buyer's draft instead of being skipped).
+          if (args.separateFromExistingDrafts) {
+            const existingSame = openDrafts.find((d) => (d.note2 ?? "").includes(marker));
+            if (existingSame) {
+              merged.push({ ...plan, draftOrderName: existingSame.name, draftOrderId: gidToId(existingSame.id), action: "already-merged (skipped)" });
+              continue;
+            }
           }
 
           const groupSkus = g.lineItems.map((li) => li.sku).filter((s): s is string => Boolean(s));
@@ -450,6 +479,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
           priceSource: args.priceSource,
           dryRun: args.dryRun,
           ordersScanned: orders.length,
+          ordersAlreadySynced: alreadySynced,
           buyersTotal: groups.size,
           mergedCount: merged.length,
           skippedCount: skipped.length,
@@ -466,8 +496,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
         logToolCall({ tool: "ebay_merge_sales_to_draft_orders", durationMs: Date.now() - start, success: false, error: message });
         return { content: [textContent(`Error: ${message}`)], isError: true };
       }
-    }) as never,
-  );
+  };
 }
 
 /**

@@ -16,7 +16,7 @@ import { EbayClient, EbayError } from "../ebay-client.js";
 import type { Config, EbayListingDefaults } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent } from "../format.js";
-import { DAY_MS, zonedDayStartToUtc, toZonedIso } from "../tz.js";
+import { DAY_MS, zonedDayStartToUtc, toZonedIso, localDateRangeToUtc } from "../tz.js";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
@@ -295,9 +295,8 @@ export function registerEbayTools(server: McpServer, ebay: EbayClient, config: C
       let fromUtc: Date;
       let toUtc: Date;
       if (args.dateFrom && args.dateTo) {
-        fromUtc = zonedDayStartToUtc(args.dateFrom, tz);
-        // inclusive end: start of dateTo + 1 day
-        toUtc = new Date(zonedDayStartToUtc(args.dateTo, tz).getTime() + DAY_MS);
+        // Inclusive end, but capped at now so dateTo:<today> isn't in the future.
+        ({ fromUtc, toUtc } = localDateRangeToUtc(args.dateFrom, args.dateTo, tz, now.getTime()));
       } else if (args.dateFrom || args.dateTo) {
         throw new Error("dateFrom and dateTo must be provided together.");
       } else {
