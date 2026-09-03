@@ -323,14 +323,17 @@ export function makeMergeHandler(shopify: ShopifyClient, ebay: EbayClient, confi
         }
 
         // Order-level idempotency: an eBay order id is "already synced" if it
-        // appears in the note of a merge-created draft OR a merge-created order.
-        // Only notes carrying this system's `ebay-merge` marker count — that
-        // excludes eBay's own auto-synced source orders (named by the eBay id,
-        // no merge note), which merge is *meant* to combine, not skip.
-        const isMergeNote = (note: string | null | undefined): boolean => /ebay-merge/i.test(note ?? "");
+        // appears ANYWHERE in the note of an open draft OR any recent order —
+        // whether written by this tool (its `ebay-merge` note) or by a human's
+        // own wording (e.g. #12904's "Imported from eBay order 03-15128-66598
+        // ..."). We match the raw id as a plain substring and do NOT require the
+        // tool's own note format — an earlier marker-only filter missed
+        // hand-written notes and let the same order re-import repeatedly.
+        // (eBay's auto-synced source orders carry the id in their NAME, not their
+        // note, so this doesn't touch orders merge is meant to combine.)
         const syncedOrderIds = new Set<string>();
-        for (const d of openDrafts) if (isMergeNote(d.note2)) for (const id of parseEbayOrderIds(d.note2)) syncedOrderIds.add(id);
-        for (const note of mergeOrderNotes) if (isMergeNote(note)) for (const id of parseEbayOrderIds(note)) syncedOrderIds.add(id);
+        for (const d of openDrafts) for (const id of parseEbayOrderIds(d.note2)) syncedOrderIds.add(id);
+        for (const note of mergeOrderNotes) for (const id of parseEbayOrderIds(note)) syncedOrderIds.add(id);
         let alreadySynced = 0;
 
         // 2b. Group by buyer username.
