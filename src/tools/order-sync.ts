@@ -15,7 +15,7 @@ export function registerOrderSyncTools(server: McpServer, engine: OrderSyncEngin
     {
       title: "Import eBay orders to Shopify now",
       description:
-        "Run the eBay→Shopify order import on demand — the same job the scheduler runs twice daily. Imports a trailing window of eBay sales into Shopify draft orders (one per buyer, minOrdersToMerge:1 so single-order stragglers are caught, folding into a buyer's existing open draft rather than duplicating). Idempotent: orders already in a draft are skipped. dryRun (default) previews what would import.",
+        "Run the eBay→Shopify order import on demand — the same job the scheduler runs twice daily. Imports a trailing window of eBay sales into Shopify draft orders (one per buyer, minOrdersToMerge:1 so single-order stragglers are caught, folding into a buyer's existing open draft rather than duplicating). Idempotent: orders already in a merge draft OR a completed merge order are skipped, so a second pass right after an import creates nothing. dryRun (default) previews what would import.",
       inputSchema: {
         lookbackDays: z.number().int().min(0).max(30).optional().describe("How many days back to cover (default from config, usually 2)."),
         dryRun: z.boolean().default(true).describe("true (default): preview the import without creating drafts. false: import."),

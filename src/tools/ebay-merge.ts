@@ -31,7 +31,7 @@ import { EbayClient } from "../ebay-client.js";
 import type { Config } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent, gidToId } from "../format.js";
-import { localDateRangeToUtc } from "../tz.js";
+import { localDateRangeToUtc, DAY_MS } from "../tz.js";
 import { parseEbayOrderIds } from "../ebay-order-ids.js";
 import { resolveSkus } from "./batch-lookups.js";
 import { ebayLineUnitPrice, customItemRequiresShipping } from "./ebay-listing.js";
@@ -43,6 +43,17 @@ const OPEN_DRAFTS = /* GraphQL */ `
     draftOrders(first: 250, after: $after, query: "status:OPEN") {
       pageInfo { hasNextPage endCursor }
       nodes { id name note2 }
+    }
+  }
+`;
+
+// Recent orders (any state), for order-level dedup: a merge draft that has since
+// been COMPLETED into a real order still carries its source eBay ids in the note.
+const RECENT_ORDERS = /* GraphQL */ `
+  query MergeDedupOrders($query: String!, $after: String) {
+    orders(first: 100, after: $after, query: $query, sortKey: CREATED_AT, reverse: true) {
+      pageInfo { hasNextPage endCursor }
+      nodes { note }
     }
   }
 `;
@@ -230,7 +241,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
     {
       title: "Merge a day's eBay sales into draft orders",
       description:
-        "Group a local calendar day's eBay sales by buyer and create ONE Shopify draft order per buyer with ≥ minOrdersToMerge orders — resolving SKUs to variants, keeping no-SKU eBay listings as custom line items, and pulling the shipping address from the eBay ship-to. Read-only against eBay (never closes/refunds source orders); write-only against Shopify drafts. dryRun:true (default) returns the planned groupings without creating anything. Idempotent: any eBay order already recorded in an open draft's note is skipped (order-level), so re-running an overlapping range never double-imports; dateTo may be today (the window is capped at now).",
+        "Group a local calendar day's eBay sales by buyer and create ONE Shopify draft order per buyer with ≥ minOrdersToMerge orders — resolving SKUs to variants, keeping no-SKU eBay listings as custom line items, and pulling the shipping address from the eBay ship-to. Read-only against eBay (never closes/refunds source orders); write-only against Shopify drafts. dryRun:true (default) returns the planned groupings without creating anything. Idempotent: any eBay order already recorded in a merge draft's OR a completed merge order's note is skipped (order-level), so re-running an overlapping range never double-imports even after the draft has been completed/shipped; dateTo may be today (the window is capped at now).",
       inputSchema: {
         dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Local start date YYYY-MM-DD (inclusive), in the seller's timezone."),
         dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Local end date YYYY-MM-DD (inclusive), in the seller's timezone. Same as dateFrom for a single day."),
@@ -295,12 +306,31 @@ export function makeMergeHandler(shopify: ShopifyClient, ebay: EbayClient, confi
             after = res.data.draftOrders.pageInfo.endCursor;
           }
         }
-        // Order-level idempotency: every eBay order id already recorded in an
-        // open draft's note has been synced — never re-import it. This makes
-        // overlapping/repeated runs (a multi-day scheduled sweep re-covering
-        // yesterday, a human re-running a range) safe against double-import.
+        // 2a-ii. Also scan recent REAL orders. A merge draft that's been
+        // completed becomes an order and its note (with the source eBay ids)
+        // carries over — so drafts alone miss anything already completed/shipped.
+        const mergeOrderNotes: Array<string | null> = [];
+        {
+          const sinceIso = new Date(fromUtc.getTime() - DAY_MS).toISOString(); // small buffer for the completed-draft order's own createdAt
+          let after: string | null = null;
+          for (let page = 0; page < 10; page++) {
+            const res: { data: { orders: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ note: string | null }> } } } =
+              await shopify.request(RECENT_ORDERS, { query: `created_at:>='${sinceIso}'`, after });
+            for (const o of res.data.orders.nodes) mergeOrderNotes.push(o.note);
+            if (!res.data.orders.pageInfo.hasNextPage) break;
+            after = res.data.orders.pageInfo.endCursor;
+          }
+        }
+
+        // Order-level idempotency: an eBay order id is "already synced" if it
+        // appears in the note of a merge-created draft OR a merge-created order.
+        // Only notes carrying this system's `ebay-merge` marker count — that
+        // excludes eBay's own auto-synced source orders (named by the eBay id,
+        // no merge note), which merge is *meant* to combine, not skip.
+        const isMergeNote = (note: string | null | undefined): boolean => /ebay-merge/i.test(note ?? "");
         const syncedOrderIds = new Set<string>();
-        for (const d of openDrafts) for (const id of parseEbayOrderIds(d.note2)) syncedOrderIds.add(id);
+        for (const d of openDrafts) if (isMergeNote(d.note2)) for (const id of parseEbayOrderIds(d.note2)) syncedOrderIds.add(id);
+        for (const note of mergeOrderNotes) if (isMergeNote(note)) for (const id of parseEbayOrderIds(note)) syncedOrderIds.add(id);
         let alreadySynced = 0;
 
         // 2b. Group by buyer username.
