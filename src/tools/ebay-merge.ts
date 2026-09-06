@@ -32,7 +32,7 @@ import type { Config } from "../config.js";
 import { logToolCall } from "../logger.js";
 import { textContent, gidToId } from "../format.js";
 import { localDateRangeToUtc, DAY_MS } from "../tz.js";
-import { parseEbayOrderIds } from "../ebay-order-ids.js";
+import { parseEbayOrderIds, EBAY_ORDER_ID_RE } from "../ebay-order-ids.js";
 import { resolveSkus } from "./batch-lookups.js";
 import { ebayLineUnitPrice, customItemRequiresShipping } from "./ebay-listing.js";
 
@@ -47,13 +47,15 @@ const OPEN_DRAFTS = /* GraphQL */ `
   }
 `;
 
-// Recent orders (any state), for order-level dedup: a merge draft that has since
-// been COMPLETED into a real order still carries its source eBay ids in the note.
+// Recent orders (ANY state), for order-level dedup. An eBay order already lives
+// in Shopify if it is: a completed merge order (id in note), an individually
+// auto-synced order (the eBay id IS the order name), or a hand-imported order
+// (id in prose in the note). All three must block a re-import.
 const RECENT_ORDERS = /* GraphQL */ `
   query MergeDedupOrders($query: String!, $after: String) {
     orders(first: 100, after: $after, query: $query, sortKey: CREATED_AT, reverse: true) {
       pageInfo { hasNextPage endCursor }
-      nodes { note }
+      nodes { name note }
     }
   }
 `;
@@ -149,6 +151,7 @@ interface EbayShipTo {
 interface EbayOrder {
   orderId?: string;
   creationDate?: string;
+  orderFulfillmentStatus?: string;
   buyer?: { username?: string; buyerRegistrationAddress?: { fullName?: string; email?: string } };
   pricingSummary?: { total?: { value?: string; currency?: string } };
   lineItems?: EbayLineItem[];
@@ -241,7 +244,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
     {
       title: "Merge a day's eBay sales into draft orders",
       description:
-        "Group a local calendar day's eBay sales by buyer and create ONE Shopify draft order per buyer with ≥ minOrdersToMerge orders — resolving SKUs to variants, keeping no-SKU eBay listings as custom line items, and pulling the shipping address from the eBay ship-to. Read-only against eBay (never closes/refunds source orders); write-only against Shopify drafts. dryRun:true (default) returns the planned groupings without creating anything. Idempotent: any eBay order already recorded in a merge draft's OR a completed merge order's note is skipped (order-level), so re-running an overlapping range never double-imports even after the draft has been completed/shipped; dateTo may be today (the window is capped at now).",
+        "Group a local calendar day's eBay sales by buyer and create ONE Shopify draft order per buyer with ≥ minOrdersToMerge orders — resolving SKUs to variants, keeping no-SKU eBay listings as custom line items, and pulling the shipping address from the eBay ship-to. Read-only against eBay (never closes/refunds source orders); write-only against Shopify drafts. dryRun:true (default) returns the planned groupings without creating anything. Only pulls eBay orders that are still UNSHIPPED on eBay (NOT_STARTED/IN_PROGRESS) — anything eBay already marks FULFILLED is never merged. Skips any order already present in Shopify: a merge draft/order (id in note), an individually auto-synced order (the eBay id IS the order name), or a hand-imported order (id referenced in the note). So re-running an overlapping range never double-imports, even after a draft is completed/shipped. dateTo may be today (window capped at now). dryRun reports per-order skip reasons in skippedDetail.",
       inputSchema: {
         dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Local start date YYYY-MM-DD (inclusive), in the seller's timezone."),
         dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Local end date YYYY-MM-DD (inclusive), in the seller's timezone. Same as dateFrom for a single day."),
@@ -281,9 +284,13 @@ export function makeMergeHandler(shopify: ShopifyClient, ebay: EbayClient, confi
 
         // Inclusive end, capped at now so dateTo:<today> isn't rejected as future.
         const { fromUtc, toUtc } = localDateRangeToUtc(args.dateFrom, args.dateTo, tz);
-        const filter = `creationdate:[${fromUtc.toISOString()}..${toUtc.toISOString()}]`;
+        // Layer 1: only pull orders eBay still considers UNSHIPPED (NOT_STARTED /
+        // IN_PROGRESS). eBay's unshipped set is the source of truth — a FULFILLED
+        // order is already shipped and must never be merged (it would duplicate a
+        // package). IN_PROGRESS must be included (label bought, not yet scanned).
+        const filter = `creationdate:[${fromUtc.toISOString()}..${toUtc.toISOString()}],orderfulfillmentstatus:{NOT_STARTED|IN_PROGRESS}`;
 
-        // 1. Pull all orders in the window.
+        // 1. Pull all unshipped orders in the window.
         const orders: EbayOrder[] = [];
         let offset = 0;
         for (let page = 0; page < 40; page++) {
@@ -306,35 +313,46 @@ export function makeMergeHandler(shopify: ShopifyClient, ebay: EbayClient, confi
             after = res.data.draftOrders.pageInfo.endCursor;
           }
         }
-        // 2a-ii. Also scan recent REAL orders. A merge draft that's been
-        // completed becomes an order and its note (with the source eBay ids)
-        // carries over — so drafts alone miss anything already completed/shipped.
-        const mergeOrderNotes: Array<string | null> = [];
+        // Layer 2: build the "already in Shopify" id set from ALL sources, each
+        // tagged with WHY, so a re-import is blocked and the reason is reportable.
+        // Look back 60 days before the window so older syncs are caught (eBay ids
+        // are unique, so over-collecting is harmless).
+        type KnownReason = "merge-note" | "synced-individually" | "hand-imported";
+        const knownIds = new Map<string, KnownReason>();
+        const addKnown = (id: string, reason: KnownReason) => { if (id && !knownIds.has(id)) knownIds.set(id, reason); };
+        const noteReason = (note: string | null | undefined): KnownReason => (/ebay-merge/i.test(note ?? "") ? "merge-note" : "hand-imported");
+
+        // (a) open drafts — merge drafts (id in note) and manual drafts.
+        for (const d of openDrafts) for (const id of parseEbayOrderIds(d.note2)) addKnown(id, noteReason(d.note2));
+
+        // (b/c/d) all recent orders (any state, 60-day window): the order NAME may
+        // BE the eBay id (individually auto-synced), and/or the note may reference
+        // ids (completed merge order, or hand-imported prose).
         {
-          const sinceIso = new Date(fromUtc.getTime() - DAY_MS).toISOString(); // small buffer for the completed-draft order's own createdAt
+          const sinceIso = new Date(fromUtc.getTime() - 60 * DAY_MS).toISOString();
           let after: string | null = null;
-          for (let page = 0; page < 10; page++) {
-            const res: { data: { orders: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ note: string | null }> } } } =
-              await shopify.request(RECENT_ORDERS, { query: `created_at:>='${sinceIso}'`, after });
-            for (const o of res.data.orders.nodes) mergeOrderNotes.push(o.note);
+          for (let page = 0; page < 15; page++) {
+            const res: { data: { orders: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ name: string; note: string | null }> } } } =
+              await shopify.request(RECENT_ORDERS, { query: `created_at:>='${sinceIso}' status:any`, after });
+            for (const o of res.data.orders.nodes) {
+              const nm = o.name.replace(/^#/, "");
+              if (EBAY_ORDER_ID_RE.test(nm)) addKnown(nm, "synced-individually"); // the order name IS the eBay id
+              for (const id of parseEbayOrderIds(o.note)) addKnown(id, noteReason(o.note));
+            }
             if (!res.data.orders.pageInfo.hasNextPage) break;
             after = res.data.orders.pageInfo.endCursor;
           }
         }
 
-        // Order-level idempotency: an eBay order id is "already synced" if it
-        // appears ANYWHERE in the note of an open draft OR any recent order —
-        // whether written by this tool (its `ebay-merge` note) or by a human's
-        // own wording (e.g. #12904's "Imported from eBay order 03-15128-66598
-        // ..."). We match the raw id as a plain substring and do NOT require the
-        // tool's own note format — an earlier marker-only filter missed
-        // hand-written notes and let the same order re-import repeatedly.
-        // (eBay's auto-synced source orders carry the id in their NAME, not their
-        // note, so this doesn't touch orders merge is meant to combine.)
-        const syncedOrderIds = new Set<string>();
-        for (const d of openDrafts) for (const id of parseEbayOrderIds(d.note2)) syncedOrderIds.add(id);
-        for (const note of mergeOrderNotes) for (const id of parseEbayOrderIds(note)) syncedOrderIds.add(id);
-        let alreadySynced = 0;
+        // Layer 3 counters + (dryRun) per-order skip detail.
+        let alreadySynced = 0;          // merge-note
+        let skippedSyncedIndividually = 0;
+        let skippedHandImported = 0;
+        let skippedFulfilledOnEbay = 0; // Layer 1 defensive (API filter should keep this 0)
+        const skippedDetail: Array<Record<string, unknown>> = [];
+        const noteSkip = (o: EbayOrder, reason: string) => {
+          if (args.dryRun && skippedDetail.length < 200) skippedDetail.push({ ebayOrderId: o.orderId ?? null, buyer: o.buyer?.username ?? null, reason, ...(reason === "synced-individually" ? { shopifyOrder: o.orderId ?? null } : {}) });
+        };
 
         // 2b. Group by buyer username.
         interface Group {
@@ -350,7 +368,14 @@ export function makeMergeHandler(shopify: ShopifyClient, ebay: EbayClient, confi
         const groups = new Map<string, Group>();
         for (const o of orders) {
           const oid = o.orderId ?? "";
-          if (oid && syncedOrderIds.has(oid)) { alreadySynced++; continue; } // already in a draft
+          // Layer 1 defensive: skip anything eBay already marks shipped (the API
+          // filter should already exclude these, so this normally stays 0).
+          if ((o.orderFulfillmentStatus ?? "").toUpperCase() === "FULFILLED") { skippedFulfilledOnEbay++; noteSkip(o, "fulfilled-on-ebay"); continue; }
+          // Layer 2: skip anything already represented in Shopify, by any source.
+          const known = oid ? knownIds.get(oid) : undefined;
+          if (known === "merge-note") { alreadySynced++; noteSkip(o, "already-synced"); continue; }
+          if (known === "synced-individually") { skippedSyncedIndividually++; noteSkip(o, "synced-individually"); continue; }
+          if (known === "hand-imported") { skippedHandImported++; noteSkip(o, "hand-imported"); continue; }
           const username = o.buyer?.username ?? "";
           if (!username) continue;
           const shipTo = o.fulfillmentStartInstructions?.[0]?.shippingStep?.shipTo;
@@ -512,16 +537,21 @@ export function makeMergeHandler(shopify: ShopifyClient, ebay: EbayClient, confi
           priceSource: args.priceSource,
           dryRun: args.dryRun,
           ordersScanned: orders.length,
-          ordersAlreadySynced: alreadySynced,
+          ordersAlreadySynced: alreadySynced,               // in a merge draft/order note
+          ordersSkippedSyncedIndividually: skippedSyncedIndividually, // an individual Shopify order named by the eBay id
+          ordersSkippedHandImported: skippedHandImported,   // id referenced in a hand-written note
+          ordersSkippedFulfilledOnEbay: skippedFulfilledOnEbay, // already shipped on eBay (Layer 1 defensive)
           buyersTotal: groups.size,
           mergedCount: merged.length,
           skippedCount: skipped.length,
           merged,
           skipped,
+          skippedDetail: args.dryRun ? skippedDetail : undefined,
         };
+        const dupWarn = skippedSyncedIndividually > 0 ? `⚠ ${skippedSyncedIndividually} eBay order(s) in range already exist as individual Shopify orders and were skipped. ` : "";
         const head = args.dryRun
-          ? `**DRY RUN** — ${merged.length} buyer(s) would get a draft from ${rangeStr} (${orders.length} orders scanned, ${skipped.length} buyer(s) below threshold/excluded). Nothing created. Re-run with dryRun:false.`
-          : `Merged ${merged.length} buyer(s) into draft orders from ${rangeStr}; ${skipped.length} skipped.`;
+          ? `**DRY RUN** — ${dupWarn}${merged.length} buyer(s) would get a draft from ${rangeStr} (${orders.length} unshipped orders scanned; already-in-Shopify: ${alreadySynced} merge + ${skippedSyncedIndividually} individual + ${skippedHandImported} hand-imported). Nothing created. Re-run with dryRun:false.`
+          : `${dupWarn}Merged ${merged.length} buyer(s) into draft orders from ${rangeStr}; already-in-Shopify skipped: ${alreadySynced} merge / ${skippedSyncedIndividually} individual / ${skippedHandImported} hand-imported.`;
         logToolCall({ tool: "ebay_merge_sales_to_draft_orders", durationMs: Date.now() - start, success: true });
         return { content: [textContent(`${head}\n\n\`\`\`json\n${JSON.stringify(summary, null, 2).slice(0, 14000)}\n\`\`\``)], structuredContent: summary };
       } catch (err) {
