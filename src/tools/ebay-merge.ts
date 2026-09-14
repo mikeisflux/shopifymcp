@@ -186,6 +186,25 @@ function splitName(full: string | undefined): { firstName?: string; lastName?: s
   return { firstName: m[1], lastName: m[2]!.trim() };
 }
 
+/** Last `range:<from>..<to>` block in a merge note (last-wins), as [from, to] dates. */
+function lastRangeInNote(note: string | null | undefined): { from: string; to: string } | null {
+  let last: { from: string; to: string } | null = null;
+  for (const m of (note ?? "").matchAll(/range:(\d{4}-\d{2}-\d{2})(?:\.\.(\d{4}-\d{2}-\d{2}))?/g)) {
+    last = { from: m[1]!, to: m[2] ?? m[1]! };
+  }
+  return last;
+}
+
+/**
+ * Is a run's window contiguous with (or overlapping) an existing draft's last
+ * range? True when the existing range ended no more than one day before the run
+ * starts — i.e. same shipment window. A gap of ≥2 days means a separate shipment.
+ */
+function rangesContiguous(existing: { from: string; to: string }, runFrom: string): boolean {
+  const gapDays = (Date.parse(runFrom) - Date.parse(existing.to)) / (24 * 60 * 60 * 1000);
+  return gapDays <= 1; // overlapping (≤0) or adjacent (1 day)
+}
+
 /** Map an eBay ship-to into a Shopify MailingAddressInput. */
 function toShopifyAddress(shipTo: EbayShipTo | undefined): Record<string, unknown> | undefined {
   const a = shipTo?.contactAddress;
@@ -252,7 +271,7 @@ export function registerEbayMergeTools(server: McpServer, shopify: ShopifyClient
         dryRun: z.boolean().default(true).describe("true (default): return planned groupings without creating drafts. false: create the drafts."),
         noteTag: z.string().optional().describe("Freeform tag added to each draft's note for traceability (e.g. \"2026-08-29 show\"). Defaults to the date range."),
         excludeBuyerUsernames: z.array(z.string()).optional().describe("eBay usernames to skip entirely (e.g. wholesale accounts handled manually)."),
-        separateFromExistingDrafts: z.boolean().default(true).describe("true (default, safe): always create a NEW draft for the buyer. false: append the day's line items to the buyer's existing open merge draft instead."),
+        separateFromExistingDrafts: z.boolean().default(true).describe("Default true: a buyer who already has an open ebay-merge draft gets a NEW draft for this run (one draft = one shipment). Pass false only to intentionally fold this run's orders into their existing open draft (manual same-shipment combine) — and even then, an append only happens if that draft's window is contiguous with this run; a draft from an earlier shipment gets a new draft + a warning."),
         priceSource: z.enum(["ebay", "catalog"]).default("ebay").describe("\"ebay\" (default): every line is priced at what the buyer actually paid on eBay — SKU'd lines still link to their variant but carry a price override to the eBay sale price, so the draft total matches what was collected. \"catalog\": SKU'd lines use the variant's current Shopify list price instead. No-SKU lines always use the eBay price either way."),
         closeSourceIfSynced: z.boolean().default(false).describe("If true, after merging a buyer, close (archive — reversible) the auto-synced Shopify orders that duplicate the same sale (matched by buyer email + shared SKU within the range), so the draft order is the single source of truth. dryRun only reports which orders would close."),
       },
@@ -413,6 +432,9 @@ export function makeMergeHandler(shopify: ShopifyClient, ebay: EbayClient, confi
 
         // 6. Build + (optionally) create a draft per qualifying buyer.
         const merged: Array<Record<string, unknown>> = [];
+        const appendWarnings: Array<Record<string, unknown>> = [];
+        let appendedCount = 0;
+        const appendedDrafts: string[] = [];
         for (const g of qualifying) {
           // Aggregate line items. In "ebay" mode a variant line is keyed by
           // (variantId, unitPrice) so the same book sold twice at different
@@ -505,16 +527,27 @@ export function makeMergeHandler(shopify: ShopifyClient, ebay: EbayClient, confi
             continue;
           }
 
-          // Append mode: fold into the buyer's existing open merge draft.
+          // Append mode: fold into the buyer's existing open merge draft — but
+          // ONLY if that draft is from the same shipment window (its last range
+          // is contiguous with / overlaps this run). A draft from an earlier day
+          // is a separate shipment; create a new draft and warn instead. This is
+          // why one draft = one shipment holds even when false is passed.
           if (!args.separateFromExistingDrafts) {
             const prefix = `ebay-merge buyer:${g.username} range:`;
             const existingAny = openDrafts.find((d) => (d.note2 ?? "").includes(prefix));
             if (existingAny) {
-              const draft = await appendToDraft(shopify, existingAny.id, lineItemsInput, note, g.email ?? undefined);
-              const link = await ensureCustomerNamed(shopify, draft.customer, g.email ?? undefined, g.buyerName ?? undefined);
-              const cs = await closeSrc(false);
-              merged.push({ ...plan, draftOrderName: draft.name, draftOrderId: gidToId(draft.id), total: draft.totalPriceSet?.shopMoney.amount ?? null, ...link, closedSourceOrders: args.closeSourceIfSynced ? cs.closed : undefined, action: "appended" });
-              continue;
+              const existingRange = lastRangeInNote(existingAny.note2);
+              const contiguous = existingRange ? rangesContiguous(existingRange, args.dateFrom) : true;
+              if (contiguous) {
+                const draft = await appendToDraft(shopify, existingAny.id, lineItemsInput, note, g.email ?? undefined);
+                const link = await ensureCustomerNamed(shopify, draft.customer, g.email ?? undefined, g.buyerName ?? undefined);
+                const cs = await closeSrc(false);
+                appendedCount++; appendedDrafts.push(draft.name);
+                merged.push({ ...plan, draftOrderName: draft.name, draftOrderId: gidToId(draft.id), total: draft.totalPriceSet?.shopMoney.amount ?? null, ...link, closedSourceOrders: args.closeSourceIfSynced ? cs.closed : undefined, action: "appended" });
+                continue;
+              }
+              appendWarnings.push({ buyer: g.username, existingDraft: existingAny.name, existingRange: existingRange ? `${existingRange.from}..${existingRange.to}` : null, message: "Existing open draft is from an earlier shipment window; created a new draft instead of appending." });
+              // fall through to create a fresh draft
             }
           }
 
@@ -543,15 +576,18 @@ export function makeMergeHandler(shopify: ShopifyClient, ebay: EbayClient, confi
           ordersSkippedFulfilledOnEbay: skippedFulfilledOnEbay, // already shipped on eBay (Layer 1 defensive)
           buyersTotal: groups.size,
           mergedCount: merged.length,
+          appendedCount,
           skippedCount: skipped.length,
           merged,
           skipped,
+          warnings: appendWarnings.length ? appendWarnings : undefined,
           skippedDetail: args.dryRun ? skippedDetail : undefined,
         };
         const dupWarn = skippedSyncedIndividually > 0 ? `⚠ ${skippedSyncedIndividually} eBay order(s) in range already exist as individual Shopify orders and were skipped. ` : "";
+        const appendNote = appendedCount > 0 ? ` — **${appendedCount} appended to existing drafts** (${appendedDrafts.join(", ")})` : "";
         const head = args.dryRun
-          ? `**DRY RUN** — ${dupWarn}${merged.length} buyer(s) would get a draft from ${rangeStr} (${orders.length} unshipped orders scanned; already-in-Shopify: ${alreadySynced} merge + ${skippedSyncedIndividually} individual + ${skippedHandImported} hand-imported). Nothing created. Re-run with dryRun:false.`
-          : `${dupWarn}Merged ${merged.length} buyer(s) into draft orders from ${rangeStr}; already-in-Shopify skipped: ${alreadySynced} merge / ${skippedSyncedIndividually} individual / ${skippedHandImported} hand-imported.`;
+          ? `**DRY RUN** — ${dupWarn}${merged.length} buyer(s) would get a draft from ${rangeStr}${appendNote} (${orders.length} unshipped orders scanned; already-in-Shopify: ${alreadySynced} merge + ${skippedSyncedIndividually} individual + ${skippedHandImported} hand-imported). Nothing created. Re-run with dryRun:false.`
+          : `${dupWarn}Merged ${merged.length} buyer(s) into draft orders from ${rangeStr}${appendNote}; already-in-Shopify skipped: ${alreadySynced} merge / ${skippedSyncedIndividually} individual / ${skippedHandImported} hand-imported.`;
         logToolCall({ tool: "ebay_merge_sales_to_draft_orders", durationMs: Date.now() - start, success: true });
         return { content: [textContent(`${head}\n\n\`\`\`json\n${JSON.stringify(summary, null, 2).slice(0, 14000)}\n\`\`\``)], structuredContent: summary };
       } catch (err) {

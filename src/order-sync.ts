@@ -79,7 +79,11 @@ export class OrderSyncEngine {
       dateFrom, dateTo,
       minOrdersToMerge: 1,             // catch single-order stragglers too
       dryRun,
-      separateFromExistingDrafts: false, // fold into an existing open draft, never a shipped one
+      // One draft = one shipment = one run's orders. A buyer who bought on an
+      // earlier day (open draft) and buys again gets a NEW draft — the cron must
+      // never fold across days. Same-day re-runs still make nothing (eBay-id
+      // dedup skips everything already in a draft), so this is safe.
+      separateFromExistingDrafts: true,
       priceSource: "ebay",
       closeSourceIfSynced: false,
     };
