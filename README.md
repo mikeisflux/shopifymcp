@@ -20,7 +20,7 @@ proxy.
 2. [1. Create a Shopify custom app & access token](#1-create-a-shopify-custom-app--access-token)
 3. [2. Configure `.env`](#2-configure-env)
 4. [3. Run with Docker Compose](#3-run-with-docker-compose)
-5. [4. Expose it: Cloudflare Tunnel](#4-expose-it-cloudflare-tunnel)
+5. [4. Expose it: Tailscale Funnel](#4-expose-it-tailscale-funnel-this-deployment-or-cloudflare-tunnel)
 6. [5. Add the connector in claude.ai](#5-add-the-connector-in-claudeai)
 7. [Alternative exposure: Hetzner reverse proxy over WireGuard/Tailscale](#alternative-exposure-hetzner-reverse-proxy-over-wireguardtailscale)
 8. [Tools reference](#tools-reference)
@@ -35,7 +35,7 @@ proxy.
 ## Architecture
 
 ```
-claude.ai ──HTTPS──▶ Cloudflare Tunnel ──▶ cloudflared ──▶ shopify-mcp:3000
+claude.ai ──HTTPS──▶ Tailscale Funnel ──▶ 127.0.0.1:3030 ──▶ shopify-mcp:3000
                                                               │
                                                               ▼
                                          Shopify Admin GraphQL API (your store)
@@ -123,7 +123,7 @@ cp .env.example .env
 | `ENABLE_WRITES` | — | `true` to register write/mutation tools (needs `write_*` scopes). Defaults to `false`. |
 | `PORT` | — | Defaults to `3000`. |
 | `LOG_LEVEL` | — | `debug` \| `info` \| `warn` \| `error`. Defaults to `info`. |
-| `TUNNEL_TOKEN` | — | Cloudflare Tunnel token (used by the `cloudflared` compose service only). |
+| `TUNNEL_TOKEN` | — | Removed. Ingress is now the Tailscale Funnel; the old `cloudflared` compose service is gone. |
 | `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET` | optional | App ID (Client ID) + Cert ID (Client secret) from [developer.ebay.com](https://developer.ebay.com). Set **both** to enable the `ebay_*` tools, or **neither** to disable eBay. |
 | `EBAY_REFRESH_TOKEN` | optional | User OAuth refresh token (Sell scopes). Required for the Sell APIs. The server exchanges it for a short-lived user access token and refreshes automatically. Without it, only client-credentials app-token endpoints work. |
 | `EBAY_SCOPES` | optional | Space-separated OAuth scopes. Optional with a refresh token (its granted scopes are used); required when falling back to a client-credentials app token. |
@@ -177,13 +177,14 @@ marketplace-user data, so there is nothing to purge.
 docker compose up -d --build
 ```
 
-This starts two services:
+This starts one service:
 
-- **`shopify-mcp`** — the MCP server (memory-limited to 256M, logs rotated at 10 MB × 3).
-- **`cloudflared`** — the Cloudflare Tunnel (see next section).
+- **`shopify-mcp`** — the MCP server (memory-limited to 512M, logs rotated at 10 MB × 3). It
+  publishes port `3000` on the host loopback at `127.0.0.1:3030`, which the Tailscale Funnel
+  proxies publicly (see "Expose it" below).
 
-By default no ports are published to the LAN. For local testing you can uncomment the `ports:`
-mapping in `docker-compose.yml` to expose `3000`.
+The port is bound to `127.0.0.1`, so it is not reachable on the LAN — only the funnel fronts it
+publicly. For local testing on the NAS: `curl http://127.0.0.1:3030/healthz`.
 
 Check health:
 
@@ -204,10 +205,25 @@ node dist/index.js       # reads env from your shell / a sourced .env
 
 ---
 
-## 4. Expose it: Cloudflare Tunnel
+## 4. Expose it: Tailscale Funnel (this deployment) or Cloudflare Tunnel
 
-claude.ai needs a public HTTPS URL. Cloudflare Tunnel is the primary, recommended path — it needs no
-open inbound ports on your NAS or router.
+claude.ai needs a public HTTPS URL. **This deployment uses a Tailscale Funnel**, which serves a public
+`https://<device>.<tailnet>.ts.net` URL with no open inbound ports and no extra container:
+
+1. Install Tailscale on the NAS and join your tailnet; enable **HTTPS** and **Funnel** for the tailnet
+   in the Tailscale admin console.
+2. Publish the container's port on the host (already done — compose maps `127.0.0.1:3030->3000`).
+3. Point the funnel at it: `tailscale funnel --bg 3030`. Confirm with `tailscale funnel status`
+   (it should show `443 → http://127.0.0.1:3030`). Your public base URL is then
+   `https://<device>.<tailnet>.ts.net`.
+4. Re-arm the funnel after a NAS reboot if it doesn't persist, and make sure the Container Manager
+   project is set to auto-start on boot so the whole stack comes back.
+
+<details><summary>Alternative: Cloudflare Tunnel (not shipped in compose anymore)</summary>
+
+The old `cloudflared` compose service was removed. To use Cloudflare Tunnel instead, re-add a
+`cloudflared` service (`cloudflare/cloudflared:latest`, `tunnel --no-autoupdate run`, `TUNNEL_TOKEN`
+from `.env`) on a shared network with `shopify-mcp`, then:
 
 1. In the [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/) go to
    **Networks → Tunnels → Create a tunnel** (choose **Cloudflared**).
@@ -218,6 +234,8 @@ open inbound ports on your NAS or router.
      (this resolves inside the compose network — the `cloudflared` container reaches the MCP
      container by service name).
 4. `docker compose up -d` — the `cloudflared` service picks up `TUNNEL_TOKEN` and connects.
+
+</details>
 
 Your public MCP URL is then:
 

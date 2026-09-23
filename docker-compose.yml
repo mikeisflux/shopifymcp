@@ -5,12 +5,13 @@ services:
     container_name: shopify-mcp
     restart: unless-stopped
     env_file: .env
-    # Ingress is handled by the Cloudflare Tunnel below. Uncomment to expose the
-    # port on the LAN for local testing (e.g. MCP Inspector).
-    # ports:
-    #   - "3000:3000"
-    networks:
-      - mcp-net
+    # Ingress is the Tailscale Funnel on this host, which proxies
+    # https://dvc-cloud.swordfish-walleye.ts.net/ -> http://127.0.0.1:3030.
+    # Publish the container's 3000 on the host loopback at 3030 so the funnel
+    # (and local curl tests) can reach it. Bound to 127.0.0.1 so it is NOT
+    # exposed on the LAN — only the funnel fronts it publicly.
+    ports:
+      - "127.0.0.1:3030:3000"
     mem_limit: 512m
     # Persistent state for the automated auction engine (AUTO_AUCTION_STATE_DIR=/data).
     volumes:
@@ -20,30 +21,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: shopify-mcp-tunnel
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      # Set TUNNEL_TOKEN in .env. Configure the tunnel's public hostname to
-      # route mcp.{yourdomain} -> http://shopify-mcp:3000 in the Cloudflare
-      # Zero Trust dashboard (or via a tunnel config).
-      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
-    depends_on:
-      - shopify-mcp
-    networks:
-      - mcp-net
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-networks:
-  mcp-net:
-    driver: bridge
 
 volumes:
   mcp-data:
