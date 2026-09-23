@@ -255,15 +255,16 @@ export function loadConfig(): Config {
   // eBay Marketplace Account Deletion/Closure notification endpoint. Independent
   // of the tools — eBay requires it (or an exemption) to activate a production keyset.
   const ebayDeletionVerificationToken = optional("EBAY_DELETION_VERIFICATION_TOKEN");
-  const ebayDeletionEndpointUrl = optional("EBAY_DELETION_ENDPOINT_URL");
+  // Default to the registered public endpoint URL (not secret; must EXACTLY match
+  // what's registered with eBay, since it's part of the challenge hash). Baking it
+  // means a redeploy that drops this env var can't silently take the endpoint down
+  // or crash the whole server — only the secret token is required in .env.
+  const ebayDeletionEndpointUrl = optional("EBAY_DELETION_ENDPOINT_URL") ?? "https://dvc-cloud.swordfish-walleye.ts.net/ebay/deletion";
   if (ebayDeletionVerificationToken && !/^[A-Za-z0-9_-]{32,80}$/.test(ebayDeletionVerificationToken)) {
     errors.push("  - EBAY_DELETION_VERIFICATION_TOKEN must be 32–80 chars of letters, digits, _ or - (eBay's rule).");
   }
   if (ebayDeletionEndpointUrl && !/^https:\/\/.+/i.test(ebayDeletionEndpointUrl)) {
     errors.push("  - EBAY_DELETION_ENDPOINT_URL must be a full https:// URL (the exact one you register with eBay).");
-  }
-  if (Boolean(ebayDeletionVerificationToken) !== Boolean(ebayDeletionEndpointUrl)) {
-    errors.push("  - The eBay account-deletion endpoint needs BOTH EBAY_DELETION_VERIFICATION_TOKEN and EBAY_DELETION_ENDPOINT_URL (or neither).");
   }
 
   // eBay listing defaults. Baked in for Divinity Comics so listings are built

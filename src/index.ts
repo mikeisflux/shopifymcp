@@ -442,6 +442,10 @@ function main(): void {
     });
 
     log.info("ebay_deletion_endpoint_registered", { path: deletionPath });
+  } else {
+    // Loud, so a redeploy that dropped the token can't silently 404 eBay's
+    // periodic checks (→ "endpoint is down" → keyset deactivation in 30 days).
+    log.warn("ebay_deletion_endpoint_INACTIVE", { reason: "EBAY_DELETION_VERIFICATION_TOKEN is not set — the eBay account-deletion endpoint is NOT registered and will 404" });
   }
 
   const mcpPath = `/mcp/:secret`;
