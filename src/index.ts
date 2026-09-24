@@ -55,6 +55,8 @@ import { registerFulfillmentSyncTools } from "./tools/fulfillment-sync.js";
 import { OrderSyncEngine } from "./order-sync.js";
 import { OrderSyncScheduler } from "./order-sync-scheduler.js";
 import { registerOrderSyncTools } from "./tools/order-sync.js";
+import { JobRunner } from "./job-runner.js";
+import { registerEbayNumberedTools } from "./tools/ebay-numbered.js";
 import { registerAuctionMachineTools } from "./tools/auction-machine.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
@@ -204,7 +206,7 @@ ${body}
  * mode a new server + transport is created per request to avoid request-id
  * collisions across concurrent clients.
  */
-function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClient | undefined, auctionEngine: AuctionEngine | undefined, trackingEngine: FulfillmentSyncEngine | undefined, orderSyncEngine: OrderSyncEngine | undefined): McpServer {
+function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClient | undefined, auctionEngine: AuctionEngine | undefined, trackingEngine: FulfillmentSyncEngine | undefined, orderSyncEngine: OrderSyncEngine | undefined, jobs: JobRunner): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {} } },
@@ -264,6 +266,8 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
     registerBatchLookupTools(server, client, ebayClient);
     // Higher-level listing workflows (relist sold covers, duplicate for copies).
     if (config.enableWrites) registerEbayListingWorkflowTools(server, client, ebayClient, config);
+    // Bulk-create numbered products + eBay listings (background-job backed).
+    if (config.enableWrites) registerEbayNumberedTools(server, client, ebayClient, config, jobs);
   }
 
   // Bulk product-image sync (Shopify-only; needs write access).
@@ -314,6 +318,8 @@ function main(): void {
   let auctionEngine: AuctionEngine | undefined;
   let trackingEngine: FulfillmentSyncEngine | undefined;
   let orderSyncEngine: OrderSyncEngine | undefined;
+  // Background-job runner for long bulk operations (state under the auction dir).
+  const jobs = new JobRunner(config.auction.stateDir);
   if (ebayClient) {
     const store = new AuctionStore(config.auction.stateDir);
     auctionEngine = new AuctionEngine(config, client, ebayClient, store);
@@ -476,7 +482,7 @@ function main(): void {
   // Stateless JSON: POST carries the JSON-RPC request; a fresh server +
   // transport handle it and are torn down when the response closes.
   app.post(mcpPath, authenticate, async (req: Request, res: Response) => {
-    const server = buildServer(config, client, ebayClient, auctionEngine, trackingEngine, orderSyncEngine);
+    const server = buildServer(config, client, ebayClient, auctionEngine, trackingEngine, orderSyncEngine, jobs);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       void transport.close();

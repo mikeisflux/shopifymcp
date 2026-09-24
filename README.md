@@ -305,7 +305,7 @@ in input. Lists use cursor pagination (`first` default 25, max 100; `after` curs
 - Destructive and all eBay-write tools default to **`dryRun:true`** — they echo the planned call and
   do nothing until you pass `dryRun:false`.
 
-There are **156 tools**. They're grouped by domain below.
+There are **158 tools**. They're grouped by domain below.
 
 ### Products & variants
 
@@ -518,6 +518,8 @@ Higher-level tools that span both platforms. All default to `dryRun:true` (or re
 |---|---|
 | `ebay_bulk_list_auctions` | **Bulk:** list every product in a Shopify collection as an eBay auction — Shopify price as the start price, the product's own eBay-hosted image, auction/7-day, unique `[SKU]` titles; reports title collisions; `skipExisting` avoids duplicates. |
 | `ebay_bulk_list_fixed_price` | Same as `ebay_bulk_list_auctions` but publishes **FIXED_PRICE** (Buy It Now / GTC) listings. Takes a `collectionId` **or** an explicit `skus` list; `price` overrides the per-item Shopify price for the whole run; `quantity` sets stock. No listing duration (eBay forces GTC). Repetitive per-item warnings (the monthly listing-value note) are summarized once. `dryRun` previews. |
+| `ebay_create_numbered_listings` | Build **N numbered Shopify products from one image** and list them all on eBay in a single call (e.g. "Back Issue Blow Out #1..96"). The image is uploaded to Shopify Files **once** (any public URL; Google Drive share links auto-normalized) and its CDN URL reused for every product + eBay — no per-item fetches. Idempotent (existing SKU/published offer reused). Returns item numbers in order (`itemNumbersText`, one per line). A live run of >20 runs as a **background job** and returns a `jobId`; `dryRun` (default) and ≤20 return synchronously. |
+| `ebay_job_status` | Check a background job started by a bulk tool (`jobId`) — status, progress, and the full result payload once done. |
 | `ebay_search_orders` | Search recent eBay orders by keyword (line item titles), buyer name, SKU-presence (`noSkuOnly`), and total, within a date range in the **seller's local timezone**; paginates the Fulfillment API internally, returns compact summaries. |
 | `ebay_merge_sales_to_draft_orders` | Group a local day's eBay sales by buyer and create one Shopify draft order per buyer with ≥ `minOrdersToMerge` orders — SKUs resolved to variants, no-SKU listings kept as custom lines, shipping address + customer auto-linked from the eBay buyer. `priceSource:"ebay"` (default) prices each line at what was actually paid (variant lines keep their link via a price override); `closeSourceIfSynced` archives duplicate auto-synced orders; a note marker makes re-runs safe. |
 | `shopify_reprice_order_lines_to_ebay` | Rewrite completed Shopify orders so each line shows the real eBay sale price (from the note's eBay order ids or `sourceEbayOrderIds`), running the whole Order-Editing cycle internally per order. `skipAlreadyFulfilledLines` (default) leaves fulfilled lines untouched (Shopify won't zero them → doubled total). `findCandidates` auto-discovers old orders to fix. |
