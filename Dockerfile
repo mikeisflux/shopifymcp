@@ -24,6 +24,12 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 
+# Create the state dir owned by the unprivileged runtime user. A named volume
+# mounted at /data is seeded from this path's ownership when it is first created,
+# so the `node` user can write auction/order-sync/tracking state and job records.
+# Without this the volume defaults to root-owned and every state save hits EACCES.
+RUN mkdir -p /data && chown node:node /data
+
 # Run as the built-in unprivileged `node` user.
 USER node
 
