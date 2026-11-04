@@ -58,6 +58,7 @@ import { registerOrderSyncTools } from "./tools/order-sync.js";
 import { JobRunner } from "./job-runner.js";
 import { registerEbayNumberedTools } from "./tools/ebay-numbered.js";
 import { registerAuctionMachineTools } from "./tools/auction-machine.js";
+import { initIcf, registerIcfTools, icfConfigured } from "./tools/icf.js";
 
 const SERVER_NAME = "shopify-admin-mcp";
 const SERVER_VERSION = "1.0.0";
@@ -288,6 +289,14 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
     registerOrderSyncTools(server, orderSyncEngine);
   }
 
+  // IndieCrowdfund Agent API tools (icf_*). Independent of the Shopify write gate:
+  // the ICF write tools are guarded server-side by `confirm: true` + an agent:write
+  // key, so gating them behind ENABLE_WRITES (a Shopify/eBay safety flag) would
+  // needlessly hide the ICF reads too.
+  if (icfConfigured(config)) {
+    registerIcfTools(server, config);
+  }
+
   return server;
 }
 
@@ -331,6 +340,11 @@ function main(): void {
     orderSyncEngine = new OrderSyncEngine(client, ebayClient, config);
     new OrderSyncScheduler(orderSyncEngine, config.orderSync).start();
   }
+
+  // IndieCrowdfund Agent API: seed the icf_ tools from the bundled catalog now and
+  // refresh from the live catalog + run the identity check in the background.
+  initIcf(config);
+
   const app = express();
   app.use(express.json({ limit: "4mb" }));
 

@@ -63,6 +63,14 @@ export interface Config {
   trackingSync: TrackingSyncConfig;
   /** Scheduled eBay→Shopify order import (twice-daily + optional frequent). */
   orderSync: OrderSyncConfig;
+
+  // ─── IndieCrowdfund Agent API (optional third backend) ───────────────────
+  /** True when ICF_API_KEY + ICF_API_SECRET are configured; gates the icf_ tools. */
+  icfEnabled: boolean;
+  /** Base URL of the IndieCrowdfund Agent API, no trailing slash. */
+  icfApiUrl: string;
+  icfApiKey: string | undefined;
+  icfApiSecret: string | undefined;
 }
 
 export interface TrackingSyncConfig {
@@ -337,6 +345,21 @@ export function loadConfig(): Config {
     stateDir: optional("EBAY_ORDER_SYNC_STATE_DIR") ?? optional("AUTO_AUCTION_STATE_DIR") ?? "/data",
   };
 
+  // ─── IndieCrowdfund Agent API ──────────────────────────────────────────────
+  // Optional third backend. Both key and secret are needed (or neither). Lacking
+  // them is not fatal — the Shopify/eBay tools keep working; the icf_ tools just
+  // stay unregistered.
+  const icfApiKey = optional("ICF_API_KEY");
+  const icfApiSecret = optional("ICF_API_SECRET");
+  const icfApiUrl = (optional("ICF_API_URL") ?? "https://indiecrowdfund.com").replace(/\/+$/, "");
+  const icfEnabled = Boolean(icfApiKey && icfApiSecret);
+  if ((icfApiKey || icfApiSecret) && !icfEnabled) {
+    errors.push("  - IndieCrowdfund needs BOTH ICF_API_KEY and ICF_API_SECRET (or neither).");
+  }
+  if (icfEnabled && !/^https:\/\/.+/i.test(icfApiUrl)) {
+    errors.push("  - ICF_API_URL must be a full https:// URL (default https://indiecrowdfund.com).");
+  }
+
   if (errors.length > 0) {
     throw new Error(
       `Invalid configuration. Fix the following environment variables:\n${errors.join("\n")}`,
@@ -371,5 +394,9 @@ export function loadConfig(): Config {
     auction,
     trackingSync,
     orderSync,
+    icfEnabled,
+    icfApiUrl,
+    icfApiKey,
+    icfApiSecret,
   };
 }

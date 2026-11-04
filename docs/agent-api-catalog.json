@@ -1,0 +1,1428 @@
+[
+  {
+    "name": "platform_overview",
+    "description": "Platform-wide snapshot: live/funded/total campaigns, money raised and backers in the last 30 days and all time, new accounts, and the top categories. Start here for any 'how are we doing' question.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_projects",
+    "description": "List campaigns with live funding stats. Filter by status, category, creator email or a title search. Use this to find a campaign's slug before calling get_project or project_backers.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "description": "Only these statuses. Default: LIVE and FUNDED.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "SUBMITTED",
+              "APPROVED",
+              "LIVE",
+              "PAUSED",
+              "FUNDED",
+              "FAILED",
+              "CANCELLED"
+            ]
+          }
+        },
+        "category": {
+          "description": "Category slug, e.g. comics, tech.",
+          "type": "string"
+        },
+        "creatorEmail": {
+          "description": "Only campaigns by this creator.",
+          "type": "string"
+        },
+        "search": {
+          "description": "Case-insensitive match on title or subtitle.",
+          "type": "string"
+        },
+        "sort": {
+          "default": "newest",
+          "type": "string",
+          "enum": [
+            "newest",
+            "ending_soon",
+            "most_funded",
+            "most_backed",
+            "recently_updated"
+          ]
+        },
+        "limit": {
+          "default": 25,
+          "description": "Max rows to return (1-100, default 25).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "offset": {
+          "default": 0,
+          "description": "Rows to skip, for paging.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_project",
+    "description": "Everything about one campaign: funding, dates, creator, reward tiers and add-ons with claimed counts, pledge status breakdown, update count, and a daily funding timeline. Pass the slug from the campaign URL.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project slug (as in the campaign URL) or project id."
+        },
+        "timelineDays": {
+          "default": 60,
+          "description": "Days of daily pledge history to include (0 to skip).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365
+        }
+      },
+      "required": [
+        "project"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "project_backers",
+    "description": "Backers of one campaign with what they pledged: name, email, amount, reward, add-ons, country, survey and fulfillment state. Addresses are only included when includeAddress is true. Returns CSV when format is csv.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project slug (as in the campaign URL) or project id."
+        },
+        "status": {
+          "default": [
+            "COMPLETED"
+          ],
+          "description": "Pledge statuses to include. Default COMPLETED only.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "COMPLETED",
+              "FAILED",
+              "REFUNDED",
+              "CANCELLED",
+              "CHARGEBACK"
+            ]
+          }
+        },
+        "includeAddress": {
+          "default": false,
+          "description": "Include the shipping address from the survey.",
+          "type": "boolean"
+        },
+        "format": {
+          "default": "json",
+          "type": "string",
+          "enum": [
+            "json",
+            "csv"
+          ]
+        },
+        "limit": {
+          "default": 100,
+          "description": "Max rows to return (1-1000, default 100).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "offset": {
+          "default": 0,
+          "description": "Rows to skip, for paging.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "project"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "campaign_performance",
+    "description": "Money raised per campaign in a date window, with pledge count, unique backers, average pledge and refunds. Use for 'what did well this month' and comparisons between campaigns.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "Start of the window, ISO 8601 date or datetime. Defaults to 30 days ago.",
+          "type": "string"
+        },
+        "to": {
+          "description": "End of the window, ISO 8601. Defaults to now.",
+          "type": "string"
+        },
+        "limit": {
+          "default": 50,
+          "description": "Max rows to return (1-200, default 50).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "category_breakdown",
+    "description": "Campaigns launched, money raised and pledges per category in a date window. Good for deciding where outreach should focus.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "Start of the window, ISO 8601 date or datetime. Defaults to 30 days ago.",
+          "type": "string"
+        },
+        "to": {
+          "description": "End of the window, ISO 8601. Defaults to now.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "project_updates",
+    "description": "A campaign's posted updates: title, status, publish date, likes and comment counts. Tells you how actively a creator is communicating with backers.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project slug (as in the campaign URL) or project id."
+        },
+        "limit": {
+          "default": 20,
+          "description": "Max rows to return (1-100, default 20).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "project"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "find_user",
+    "description": "Look up accounts by exact email or a name/email search. Returns role, join date, pledge count and total, campaigns created, and whether they've unsubscribed. Use user_pledges or user_email_history for the detail.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "description": "Exact email (case-insensitive).",
+          "type": "string"
+        },
+        "search": {
+          "description": "Partial match on name or email.",
+          "type": "string"
+        },
+        "limit": {
+          "default": 10,
+          "description": "Max rows to return (1-50, default 10).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "user_pledges",
+    "description": "Every pledge by one backer, with campaign, amount, status, reward, survey and fulfillment state. Newest first.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "The backer's account email."
+        },
+        "limit": {
+          "default": 50,
+          "description": "Max rows to return (1-200, default 50).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "required": [
+        "email"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "backer_segments",
+    "description": "Build an outreach list of backers. Segments: lapsed (haven't pledged in N days), repeat (at least N completed pledges), top_spenders, category_fans (backed campaigns in a category), project_backers (backed one campaign), creator_backers (backed any campaign by a creator), new_backers (first pledge within N days). Unsubscribed and deleted accounts are excluded unless includeUnsubscribed is true. Returns email, name, pledge count, total, last pledge and categories; CSV when format is csv.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "segment": {
+          "type": "string",
+          "enum": [
+            "lapsed",
+            "repeat",
+            "top_spenders",
+            "category_fans",
+            "project_backers",
+            "creator_backers",
+            "new_backers"
+          ]
+        },
+        "days": {
+          "default": 90,
+          "description": "Window for lapsed / new_backers.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650
+        },
+        "minPledges": {
+          "default": 2,
+          "description": "Threshold for repeat; minimum for every other segment is 1.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "category": {
+          "description": "For category_fans.",
+          "type": "string"
+        },
+        "project": {
+          "description": "Slug or id, for project_backers.",
+          "type": "string"
+        },
+        "creatorEmail": {
+          "description": "For creator_backers.",
+          "type": "string"
+        },
+        "includeUnsubscribed": {
+          "default": false,
+          "type": "boolean"
+        },
+        "format": {
+          "default": "json",
+          "type": "string",
+          "enum": [
+            "json",
+            "csv"
+          ]
+        },
+        "limit": {
+          "default": 200,
+          "description": "Max rows to return (1-2000, default 200).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "offset": {
+          "default": 0,
+          "description": "Rows to skip, for paging.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "segment"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "creator_pipeline",
+    "description": "Creators by where their campaign is stuck: drafts (started but never submitted), submitted (waiting on review), approved_not_launched, live, ended, or never_created (CREATOR role with no campaign at all). For nudging creators toward launch.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": [
+            "drafts",
+            "submitted",
+            "approved_not_launched",
+            "live",
+            "ended",
+            "never_created"
+          ]
+        },
+        "inactiveDays": {
+          "default": 0,
+          "description": "Only include campaigns not touched for at least this many days.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3650
+        },
+        "limit": {
+          "default": 50,
+          "description": "Max rows to return (1-500, default 50).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "offset": {
+          "default": 0,
+          "description": "Rows to skip, for paging.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "stage"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "email_engagement",
+    "description": "Sent / opened / clicked counts for platform email in a date window, grouped by recipient domain, email type, or day. Opens are tracked on marketing mail only, so transactional types show opens as null. Use it to spot a mailbox provider that stopped delivering.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "Start of the window, ISO 8601 date or datetime. Defaults to 30 days ago.",
+          "type": "string"
+        },
+        "to": {
+          "description": "End of the window, ISO 8601. Defaults to now.",
+          "type": "string"
+        },
+        "groupBy": {
+          "default": "domain",
+          "type": "string",
+          "enum": [
+            "domain",
+            "type",
+            "day"
+          ]
+        },
+        "minSent": {
+          "default": 20,
+          "description": "Hide groups with fewer sends than this.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "limit": {
+          "default": 25,
+          "description": "Max rows to return (1-200, default 25).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "user_email_history",
+    "description": "What we've sent one person and what became of it: transactional/marketing log with open times, plus the Sent-folder copies with the mail provider's delivery verdict (delivered, bounced, not delivered) and reason. Also reports blocklist and unsubscribe state. First stop for 'they say they never got the email'.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "limit": {
+          "default": 20,
+          "description": "Max rows to return (1-100, default 20).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "email"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "email_campaigns",
+    "description": "Marketing email campaigns with their send stats: recipients, sent, opens, clicks, bounces, unsubscribes and attributed pledges.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "SCHEDULED",
+              "SENDING",
+              "SENT",
+              "CANCELLED"
+            ]
+          }
+        },
+        "limit": {
+          "default": 20,
+          "description": "Max rows to return (1-100, default 20).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "newsletter_stats",
+    "description": "Newsletter list size, active vs unsubscribed, growth over the last 30/90 days, and subscribers by source and tag.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "email_deliverability",
+    "description": "Can we email this address? Checks the blocklist, site-wide unsubscribe, newsletter status and the last provider verdict for the address.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "email"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "sentinel_errors",
+    "description": "Error groups from Sentinel (the built-in error tracker): title, level, source, counts, first/last seen. Default: unresolved errors seen in the last 24 hours.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "default": [
+            "UNRESOLVED"
+          ],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "UNRESOLVED",
+              "IN_PROGRESS",
+              "RESOLVED",
+              "IGNORED"
+            ]
+          }
+        },
+        "hours": {
+          "default": 24,
+          "description": "Only groups last seen within this many hours.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 720
+        },
+        "search": {
+          "description": "Substring match on the error title.",
+          "type": "string"
+        },
+        "limit": {
+          "default": 25,
+          "description": "Max rows to return (1-100, default 25).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "sentinel_error_detail",
+    "description": "Full detail for one Sentinel error group: latest message, stack trace, metadata and the most recent occurrences with URL, method, status and user.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "groupId": {
+          "type": "string"
+        },
+        "occurrences": {
+          "default": 10,
+          "description": "Max rows to return (1-50, default 10).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "required": [
+        "groupId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "search_logs",
+    "description": "Search the application's pm2 logs for a literal string (a pledge id, user id, email, correlationId, or message text) and return the most recent matching lines. Each line is a JSON log entry. Use it to trace what happened to one pledge or request.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200,
+          "description": "Literal text to look for (not a regex)."
+        },
+        "lines": {
+          "default": 50,
+          "description": "Most recent matching lines to return.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "maxLineLength": {
+          "default": 1200,
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 5000
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "agent_call_log",
+    "description": "Recent calls made through this Agent API (by any key): tool, outcome, duration. Useful to see what an earlier session already asked for.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "default": 50,
+          "description": "Max rows to return (1-200, default 50).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "extend_campaign",
+    "description": "Push a live or funded campaign's end date out by N days. Refuses campaigns that are FAILED or CANCELLED, since refunds or wind-down have already run on those.",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project slug (as in the campaign URL) or project id."
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the change."
+        }
+      },
+      "required": [
+        "project",
+        "days",
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "set_campaign_goal",
+    "description": "Change a campaign's funding goal. Lowering a goal below the amount already raised makes the campaign show as funded immediately.",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project slug (as in the campaign URL) or project id."
+        },
+        "goal": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10000000
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the change."
+        }
+      },
+      "required": [
+        "project",
+        "goal",
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "add_newsletter_subscribers",
+    "description": "Import or re-activate newsletter subscribers in bulk, e.g. a Shopify or eBay customer export. Pass `subscribers` as objects with email and optional name and per-row tags (up to 5000 per call), or `emails` as bare strings. `tags` applies to every row; `source` labels where they came from (shopify, ebay, csv…). Existing subscribers get the new tags merged and a missing name filled in. Addresses on the blocklist, accounts that unsubscribed site-wide, and anyone who unsubscribed from the newsletter are skipped and listed in the result, never added.",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "subscribers": {
+          "maxItems": 5000,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "email": {
+                "type": "string",
+                "format": "email",
+                "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "tags": {
+                "maxItems": 10,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                }
+              }
+            },
+            "required": [
+              "email"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "emails": {
+          "maxItems": 5000,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+          }
+        },
+        "tags": {
+          "default": [],
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "source": {
+          "default": "agent",
+          "type": "string",
+          "maxLength": 60
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the change."
+        }
+      },
+      "required": [
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "create_email_campaign_draft",
+    "description": "Create a marketing email campaign as a DRAFT in Admin → Email. It is never sent by this tool: an admin reviews and sends it from the dashboard. targetAudience is a free label the admin picks from in the UI (e.g. all, backers, creators).",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "html": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 200000,
+          "description": "Full HTML body."
+        },
+        "targetAudience": {
+          "default": "all",
+          "type": "string",
+          "maxLength": 60
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the change."
+        }
+      },
+      "required": [
+        "name",
+        "subject",
+        "html",
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "match_emails",
+    "description": "Compare a list of email addresses (e.g. Shopify or eBay customers) against IndieCrowdfund. For each address: is there an account, have they backed anything (count/total/last), are they on the newsletter, unsubscribed, or blocklisted. Use include to get just the people who have never backed a campaign — the outreach list. Up to 5000 addresses per call; CSV available.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "emails": {
+          "minItems": 1,
+          "maxItems": 5000,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "include": {
+          "default": "all",
+          "description": "Filter rows: never_backed = not_on_platform + account_never_backed.",
+          "type": "string",
+          "enum": [
+            "all",
+            "not_on_platform",
+            "account_never_backed",
+            "never_backed",
+            "backers"
+          ]
+        },
+        "format": {
+          "default": "json",
+          "type": "string",
+          "enum": [
+            "json",
+            "csv"
+          ]
+        }
+      },
+      "required": [
+        "emails"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "create_email_campaign",
+    "description": "Create a marketing email campaign in Admin → Email. mode 'ai' writes it with the platform's AI from a name, hint and intro, featuring live campaigns (optionally the slugs you choose) as cards; mode 'html' uses your own HTML, wrapped in the branded shell unless it is already a full email. Audience: subscriber (newsletter + verified users), backer, creator, retailer, or all. segmentTags narrows subscriber/all to newsletter subscribers carrying those tags — tag an outreach list with add_newsletter_subscribers first, then target the tag. Created as DRAFT (or SCHEDULED when scheduleFor is set); nothing is sent until send_email_campaign.",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "ai",
+            "html"
+          ]
+        },
+        "subjectHint": {
+          "description": "ai mode: subject line idea the AI should work from.",
+          "type": "string",
+          "maxLength": 200
+        },
+        "introMessage": {
+          "description": "ai mode: what the email should say, in your words; the AI polishes it.",
+          "type": "string",
+          "maxLength": 2000
+        },
+        "projectCategory": {
+          "description": "ai mode: only feature live campaigns in this category.",
+          "type": "string",
+          "maxLength": 60
+        },
+        "projectSlugs": {
+          "description": "ai mode: feature exactly these campaigns (slugs).",
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeProjectCards": {
+          "default": true,
+          "type": "boolean"
+        },
+        "subject": {
+          "description": "html mode: subject line.",
+          "type": "string",
+          "maxLength": 200
+        },
+        "html": {
+          "description": "html mode: body or full email HTML. [[campaign:slug]] tokens become campaign cards.",
+          "type": "string",
+          "maxLength": 300000
+        },
+        "preheader": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "wrapInBrandShell": {
+          "default": true,
+          "type": "boolean"
+        },
+        "audience": {
+          "default": "subscriber",
+          "type": "string",
+          "enum": [
+            "subscriber",
+            "backer",
+            "creator",
+            "retailer",
+            "all"
+          ]
+        },
+        "segmentTags": {
+          "default": [],
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "scheduleFor": {
+          "description": "ISO datetime to send automatically; omit to leave as a draft.",
+          "type": "string"
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the action."
+        }
+      },
+      "required": [
+        "name",
+        "mode",
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "preview_email_campaign",
+    "description": "Inspect a campaign before sending: subject, status, audience, live recipient count, stats so far, a text rendering of the body, and optionally the full HTML.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "campaignId": {
+          "type": "string"
+        },
+        "includeHtml": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "campaignId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "send_email_campaign",
+    "description": "Send a campaign. With testTo, sends ONE copy to that address with a [TEST] subject and changes nothing else — do this first. Without testTo, queues the email to the whole audience (1/second from the queue) and marks the campaign SENT. resend allows sending a SENT campaign again. Always confirm the recipient count with the user before a real send.",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "campaignId": {
+          "type": "string"
+        },
+        "testTo": {
+          "type": "string",
+          "format": "email",
+          "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+        },
+        "resend": {
+          "default": false,
+          "type": "boolean"
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the action."
+        }
+      },
+      "required": [
+        "campaignId",
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_ai_service",
+    "description": "Run one of the built-in AI marketing services now, exactly as the Run Now buttons in Admin → AI Marketing do. runAutomation = the daily orchestrator (profiles, segments, plans and SENDS one campaign if eligible). runSegmentation, runPredictiveAnalytics, runSendTimeOptimization, runUserProfiling recompute scores. runAutoTagging tags untagged campaigns. The test* actions produce a sample without sending. Disabled services refuse with a message; enable them with update_ai_settings.",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "runAutomation",
+            "runSegmentation",
+            "runPredictiveAnalytics",
+            "runSendTimeOptimization",
+            "runAutoTagging",
+            "runUserProfiling",
+            "testEmailPersonalization",
+            "testContentOptimization"
+          ]
+        },
+        "params": {
+          "description": "Optional per-action params, e.g. { limit: 20 } for runAutoTagging, { content, contentType } for testContentOptimization.",
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the action."
+        }
+      },
+      "required": [
+        "action",
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "ai_status",
+    "description": "Current state of the built-in AI marketing: feature toggles, limits, quiet hours, the standing directives, the last automated campaign and recent automated-campaign performance.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "ai_run_history",
+    "description": "History of AI service runs (manual, cron and agent-triggered): service, success, summary message, duration.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "serviceId": {
+          "type": "string"
+        },
+        "limit": {
+          "default": 30,
+          "description": "Max rows to return (1-200, default 30).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "offset": {
+          "default": 0,
+          "description": "Rows to skip, for paging.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_ai_settings",
+    "description": "Turn AI marketing features on or off and set the volume limits. Only the fields you pass change. Takes effect within a minute (settings are cached per worker).",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "emailPersonalization": {
+          "type": "boolean"
+        },
+        "predictiveAnalytics": {
+          "type": "boolean"
+        },
+        "smartSegmentation": {
+          "type": "boolean"
+        },
+        "sendTimeOptimization": {
+          "type": "boolean"
+        },
+        "contentOptimization": {
+          "type": "boolean"
+        },
+        "abTesting": {
+          "type": "boolean"
+        },
+        "autoTagging": {
+          "type": "boolean"
+        },
+        "emailFrequencyCap": {
+          "description": "Max marketing emails per person per 14 days.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "dailyEmailLimit": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 50000
+        },
+        "quietHoursStart": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "quietHoursEnd": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the action."
+        }
+      },
+      "required": [
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_marketing_directives",
+    "description": "The standing plain-English instructions the marketing AI follows when it writes campaign emails, the creator newsletter, social posts and marketing copy.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "set_marketing_directives",
+    "description": "Give the marketing AI standing instructions in plain English, e.g. 'This month lead with the Tech category', 'Always mention our Shopify store at indiecrowdfund.com/shop', 'No exclamation marks'. They are injected into every marketing prompt from then on. mode replace overwrites; append adds a line. Max 4000 characters.",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "directives": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "mode": {
+          "default": "replace",
+          "type": "string",
+          "enum": [
+            "replace",
+            "append"
+          ]
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the action."
+        }
+      },
+      "required": [
+        "directives",
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "smart_segments",
+    "description": "The AI's behaviour-based user segments (at-risk churners, high-value, new, dormant…) with sizes and characteristics. Computed live; takes a few seconds.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "generate_marketing_copy",
+    "description": "Have the platform AI write marketing copy for one campaign: tagline, subtitle, email subject, X/Facebook/Instagram posts and a call to action. Nothing is published; it returns text for you to use.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Slug or id."
+        }
+      },
+      "required": [
+        "project"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "social_posts",
+    "description": "The AI publicist's queue for X: pending (awaiting approval), posted, failed and rejected posts with their text and the campaign they promote.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "POSTED",
+              "FAILED",
+              "REJECTED"
+            ]
+          }
+        },
+        "limit": {
+          "default": 25,
+          "description": "Max rows to return (1-100, default 25).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "create_social_post",
+    "description": "Queue a hand-written post for the platform's X account. It waits as PENDING in Admin → Social Publicist until an admin approves it or you call publish_social_post. Keep under 280 characters including any URL.",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 280
+        },
+        "imageUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "project": {
+          "description": "Slug or id of the campaign this promotes, if any.",
+          "type": "string"
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the action."
+        }
+      },
+      "required": [
+        "content",
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "publish_social_post",
+    "description": "Post a queued (PENDING or APPROVED) social post to X right now. Irreversible once posted.",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "postId": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the action."
+        }
+      },
+      "required": [
+        "postId",
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "generate_social_posts",
+    "description": "Run the AI publicist's generation pass: find launches, milestones, ending-soon campaigns and the weekly roundup, write posts for them and queue them (respecting the approval setting). Idempotent.",
+    "scope": "agent:write",
+    "mutating": true,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "confirm": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must be true. Send only after the user has approved the action."
+        }
+      },
+      "required": [
+        "confirm"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_sql",
+    "description": "Run a read-only SQL query (SELECT / WITH / EXPLAIN) against the production Postgres database and get the rows back. One statement, 15-second timeout, up to 500 rows. Table and column names are quoted CamelCase as in the Prisma schema, e.g. SELECT title, \"goalAmount\" FROM \"Project\" WHERE status = 'LIVE'. Columns holding passwords, hashes, tokens, card or bank data are refused. Prefer the purpose-built tools when one fits; use this for questions they don't cover.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sql": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 8000
+        },
+        "maxRows": {
+          "default": 200,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      },
+      "required": [
+        "sql"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "server_status",
+    "description": "Health snapshot of the IndieCrowdfund server: app workers (pm2), memory and disk, uptime, database reachability, email queue depth, and the last cron and AI runs.",
+    "scope": "agent:read",
+    "mutating": false,
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  }
+]

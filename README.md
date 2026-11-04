@@ -302,10 +302,14 @@ in input. Lists use cursor pagination (`first` default 25, max 100; `after` curs
 - **Write** tools (create / update / delete / bulk / normalize) require **`ENABLE_WRITES=true`**.
 - **eBay** tools require `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET`; the cross-service **workflow** tools
   and the **auction** controls require both Shopify writes **and** eBay creds.
+- **IndieCrowdfund** (`icf_*`) tools require `ICF_API_KEY` + `ICF_API_SECRET`; they have their own
+  read/write scopes and `confirm:true` guard, so they are **independent of `ENABLE_WRITES`**.
 - Destructive and all eBay-write tools default to **`dryRun:true`** — they echo the planned call and
   do nothing until you pass `dryRun:false`.
 
-There are **158 tools**. They're grouped by domain below.
+There are **158 Shopify/eBay tools**, grouped by domain below, plus **42 IndieCrowdfund `icf_*`
+tools** registered dynamically from the platform's live catalog (see the IndieCrowdfund section at the
+end).
 
 ### Products & variants
 
@@ -558,6 +562,64 @@ Control/inspect it with these tools:
 All settings are `AUTO_AUCTION_*` env vars (see `.env.example`). Start with `AUTO_AUCTION_ENABLED=false`
 and a `dryRun` list to observe before going fully automatic, and set `AUTO_AUCTION_HARD_MIN_FLOORS` to
 your real cost + fees so automation can't sell at a loss.
+
+
+### IndieCrowdfund (`icf_*`)
+
+A third tool family wrapping [IndieCrowdfund](https://indiecrowdfund.com)'s Agent API — a thin
+authenticated HTTPS client, no database or SSH. Set `ICF_API_KEY` + `ICF_API_SECRET` (issue them at
+IndieCrowdfund **Admin → System → Agent API**). The tools are **registered from the platform's live
+catalog** at startup (`GET /api/agent/v1/tools`), so new IndieCrowdfund tools appear here after a
+restart with no code change; a bundled snapshot (`docs/agent-api-catalog.json`, embedded at
+`src/icf-catalog.ts`) seeds them if the live catalog can't be reached. Full integration spec:
+`docs/AGENT-API-MCP-SPEC.md`.
+
+- **Scopes:** a read-only key can call every non-write tool; the writes need a key issued with
+  "guarded writes". Each write also requires `confirm:true`, which the wrapper **never** adds on its
+  own — the model shows you the exact change (recipient count, subject, …) and you approve it first.
+- Errors come back as readable `IndieCrowdfund <code>: <message>` text the model can self-correct on.
+  CSV results (`format:"csv"`) are returned verbatim. Rate limit: 120 calls/min per key.
+
+| Tool | What it does |
+|---|---|
+| `icf_platform_overview` | *(read)* Campaigns by status, raised/pledges/backers (30-day + all-time), new accounts, top categories. |
+| `icf_list_projects` | *(read)* List campaigns with funding stats; filter by status/category/creator/search. Find a slug. |
+| `icf_get_project` | *(read)* Full campaign detail: funding, dates, creator, rewards/add-ons, pledge breakdown, daily timeline. |
+| `icf_project_backers` | *(read)* Backers of a campaign (name, email, amount, reward, add-ons, fulfillment). JSON or CSV. |
+| `icf_campaign_performance` | *(read)* Raised/pledges/unique backers/avg/refunds per campaign in a date window. |
+| `icf_category_breakdown` | *(read)* Campaigns launched, raised, pledges per category in a window. |
+| `icf_project_updates` | *(read)* A campaign's posted updates with likes/comments. |
+| `icf_find_user` | *(read)* Look up accounts by email or name/email search. |
+| `icf_user_pledges` | *(read)* Every pledge by one backer. |
+| `icf_backer_segments` | *(read)* Build an outreach list by segment (lapsed/repeat/top_spenders/…). JSON or CSV. |
+| `icf_creator_pipeline` | *(read)* Creators by campaign stage (drafts/submitted/live/ended/never_created). |
+| `icf_match_emails` | *(read)* Compare up to 5000 emails (a Shopify/eBay export) against accounts, pledges, newsletter, unsubscribe, blocklist. |
+| `icf_email_engagement` | *(read)* Sent/opened/clicked by domain/type/day. |
+| `icf_user_email_history` | *(read)* What we sent one person + delivery verdicts, blocklist/unsubscribe state. |
+| `icf_email_deliverability` | *(read)* Can we email this address? blocklist/unsubscribe/newsletter/last verdict. |
+| `icf_email_campaigns` | *(read)* Marketing campaigns with send/open/click/bounce stats. |
+| `icf_newsletter_stats` | *(read)* List size, growth, by source and tag. |
+| `icf_sentinel_errors` / `icf_sentinel_error_detail` | *(read)* IndieCrowdfund's error tracker: groups and full detail. |
+| `icf_search_logs` | *(read)* Search the app's pm2 logs for a literal string. |
+| `icf_agent_call_log` | *(read)* Recent calls made through this Agent API. |
+| `icf_run_sql` | *(read)* One read-only SELECT/WITH/EXPLAIN against production Postgres (15s, ≤500 rows; secret columns refused). |
+| `icf_ai_status` / `icf_ai_run_history` / `icf_smart_segments` | *(read)* State, run history and behaviour segments of the built-in AI marketing. |
+| `icf_generate_marketing_copy` / `icf_get_marketing_directives` | *(read)* Draft copy for a campaign; read the AI's standing directives. |
+| `icf_social_posts` | *(read)* The AI publicist's X queue. |
+| `icf_add_newsletter_subscribers` | **write** Bulk-import/re-activate subscribers (e.g. a Shopify export) with names + tags. |
+| `icf_create_email_campaign` | **write** Create a campaign (AI-written or your HTML), target an audience + segment tags. |
+| `icf_preview_email_campaign` | *(read)* Subject, status, live recipient count, text rendering, stats. |
+| `icf_send_email_campaign` | **write** Send a `[TEST]` copy (`testTo`) or queue to the whole audience. |
+| `icf_create_email_campaign_draft` | **write** Create a DRAFT in Admin → Email (never sends). |
+| `icf_extend_campaign` / `icf_set_campaign_goal` | **write** Move a campaign's end date / change its funding goal. |
+| `icf_set_marketing_directives` / `icf_update_ai_settings` / `icf_run_ai_service` | **write** Steer the built-in AI: standing directives, feature toggles, run a service now (`runAutomation` can send). |
+| `icf_create_social_post` / `icf_publish_social_post` / `icf_generate_social_posts` | **write** Queue / publish / generate X posts. |
+
+**The workflow this is for** — "find Shopify customers who haven't backed us, and email them":
+`shopify_list_customers` → `icf_match_emails {include:"never_backed"}` → `icf_add_newsletter_subscribers
+{tags:["shopify-not-backer"], confirm:true}` → `icf_create_email_campaign {mode:"ai",
+segmentTags:["shopify-not-backer"], confirm:true}` → `icf_send_email_campaign {testTo:…, confirm:true}`
+→ (after you approve the count + subject) `icf_send_email_campaign {confirm:true}`.
 
 
 ### Errors
