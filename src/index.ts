@@ -44,6 +44,7 @@ import { registerEbayBulkTools } from "./tools/ebay-bulk.js";
 import { registerEbayMergeTools } from "./tools/ebay-merge.js";
 import { registerOrderRepriceTools } from "./tools/order-reprice.js";
 import { registerBatchLookupTools } from "./tools/batch-lookups.js";
+import { registerCoverageAuditTools } from "./tools/coverage-audit.js";
 import { registerProductImageTools } from "./tools/product-images.js";
 import { registerEbayListingWorkflowTools } from "./tools/ebay-relist.js";
 import { AuctionStore } from "./auction-store.js";
@@ -265,6 +266,8 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
     if (config.enableWrites) registerOrderRepriceTools(server, client, ebayClient, config);
     // Batch lookup primitives (SKU→variant, eBay listing status).
     registerBatchLookupTools(server, client, ebayClient);
+    // Whole-catalog eBay listing-coverage audit (read-only, background job).
+    registerCoverageAuditTools(server, client, ebayClient, jobs);
     // Higher-level listing workflows (relist sold covers, duplicate for copies).
     if (config.enableWrites) registerEbayListingWorkflowTools(server, client, ebayClient, config);
     // Bulk-create numbered products + eBay listings (background-job backed).
