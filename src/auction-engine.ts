@@ -56,8 +56,9 @@ const cleanImage = (url: string): string => { const q = url.indexOf("?"); return
 const stripSuffix = (sku: string): string => sku.replace(/-ebaylive$/i, "");
 
 const COLLECTIONS_Q = /* GraphQL */ `
-  query AuctionCollections($first: Int!) {
-    collections(first: $first, query: "collection_type:smart OR collection_type:custom") {
+  query AuctionCollections($first: Int!, $after: String) {
+    collections(first: $first, after: $after, query: "collection_type:smart OR collection_type:custom") {
+      pageInfo { hasNextPage endCursor }
       nodes { id title }
     }
   }`;
@@ -112,9 +113,20 @@ export class AuctionEngine {
   }
 
   private async matchingCollections(): Promise<Array<{ id: string; title: string }>> {
-    const res = await this.shopify.request<{ collections: { nodes: Array<{ id: string; title: string }> } }>(COLLECTIONS_Q, { first: 250 });
     const match = this.config.auction.collectionMatch;
-    return res.data.collections.nodes.filter((c) => c.title.toLowerCase().includes(match));
+    const out: Array<{ id: string; title: string }> = [];
+    // Paginate ALL collections — the store has 300+, and the *-ebaylive ones have
+    // the highest ids, so a single first:250 page silently drops most of them.
+    let after: string | null = null;
+    for (let page = 0; page < 40; page++) {
+      const res: { data: { collections: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string; title: string }> } } } =
+        await this.shopify.request(COLLECTIONS_Q, { first: 250, after });
+      const c = res.data.collections;
+      for (const n of c.nodes) if (n.title.toLowerCase().includes(match)) out.push(n);
+      if (!c.pageInfo.hasNextPage) break;
+      after = c.pageInfo.endCursor;
+    }
+    return out;
   }
 
   private async gatherCandidates(): Promise<Candidate[]> {
@@ -123,8 +135,9 @@ export class AuctionEngine {
     const seen = new Set<string>();
     for (const col of cols) {
       let after: string | null = null;
-      // Cap paging per collection to keep a cycle bounded.
-      for (let page = 0; page < 20; page++) {
+      // Cap paging per collection to keep a cycle bounded (80 × 100 = 8000, enough
+      // for the ~4,716-item master collection; dedup across collections is cheap).
+      for (let page = 0; page < 80; page++) {
         const r: { data: { collection: { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ title: string; vendor: string | null; tags: string[]; featuredImage: { url: string } | null; variants: { nodes: Array<{ sku: string | null; price: string | null }> } }> } } | null } } =
           await this.shopify.request(PRODUCTS_Q, { id: col.id, first: 100, after });
         const pc = r.data.collection;
