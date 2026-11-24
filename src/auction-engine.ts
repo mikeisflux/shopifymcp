@@ -17,6 +17,7 @@ import type { Config } from "./config.js";
 import type { ShopifyClient } from "./shopify-client.js";
 import type { EbayClient } from "./ebay-client.js";
 import { AuctionStore, type ActiveAuction, type ClosedAuction } from "./auction-store.js";
+import { buildPopularity, type Popularity } from "./popularity.js";
 import { log } from "./logger.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -31,6 +32,17 @@ export function coverTypeOf(sku: string): string {
 }
 const COVER_LABEL: Record<string, string> = { RM: "Raised Metal", GITD: "Glow in the Dark", M: "Metal", F: "Foil", REG: "Regular" };
 export const coverLabel = (t: string): string => COVER_LABEL[t] ?? t;
+
+/**
+ * Cover stem for popularity grouping: strip the -ebaylive suffix and any trailing
+ * cover-type letters so a cover's variants + its store twin share one key, e.g.
+ * "G1-07M-ebaylive" / "G1-07F" / "G1-07" all → "G1-07". Letter-only SKUs pass through.
+ */
+export function coverStem(sku: string): string {
+  const s = sku.replace(/-ebaylive$/i, "");
+  const m = s.match(/^(.*\d)[A-Za-z]*$/);
+  return (m?.[1] ?? s).toUpperCase();
+}
 
 /**
  * Human series name for a product. Prefers a product tag like "Dead-sexy-1-books"
@@ -92,7 +104,19 @@ export class AuctionEngine {
     store.seedFloors(config.auction.initialFloors);
   }
 
+  /** Cached blended popularity (cover stem -> 0..1), refreshed on the review cycle. */
+  private popularity: Popularity | null = null;
+
   private nowMs(): number { return Date.now(); }
+
+  /** Rebuild the blended store-sales + auction-results popularity model. */
+  async refreshPopularity(): Promise<void> {
+    try {
+      this.popularity = await buildPopularity(this.shopify, this.store, coverStem);
+    } catch (err) {
+      log.warn("auction_popularity_failed", { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
 
   /** Per-cover-type performance from closed history. */
   performance(): Record<string, { listed: number; sold: number; sellThrough: number; avgSold: number; score: number }> {
@@ -220,9 +244,16 @@ export class AuctionEngine {
     const now = this.nowMs();
     const perf = this.performance();
     const all = await this.gatherCandidates();
+    // Smart order: proven money-makers first (blended store + auction popularity),
+    // with per-cover-type performance as the tie-breaker. Build it on the first
+    // run so even the initial cycle is ordered, not just later ones.
+    if (!this.popularity && !dryRun) await this.refreshPopularity();
+    const pop = this.popularity?.byStem ?? {};
     const candidates = all
       .filter((c) => !this.store.isActive(c.sku, now))
-      .sort((a, b) => (perf[b.coverType]?.score ?? 0) - (perf[a.coverType]?.score ?? 0));
+      .sort((a, b) =>
+        ((pop[coverStem(b.sku)] ?? 0) - (pop[coverStem(a.sku)] ?? 0)) ||
+        ((perf[b.coverType]?.score ?? 0) - (perf[a.coverType]?.score ?? 0)));
     const skippedActive = all.length - candidates.length;
 
     const listed: Array<{ sku: string; itemId: string; startPrice: number }> = [];
@@ -363,6 +394,8 @@ export class AuctionEngine {
   /** Phase 3: adapt floors from performance; Phase 4: optional LLM review. */
   async reviewAndAdapt(apply = this.config.auction.autoApplyFloors): Promise<{ changes: Array<{ coverType: string; from: number; to: number; reason: string }>; review: string | null }> {
     const now = this.nowMs();
+    // Refresh the blended popularity model so the next list cycle orders by it.
+    await this.refreshPopularity();
     const perf = this.performance();
     const a = this.config.auction;
     const changes: Array<{ coverType: string; from: number; to: number; reason: string }> = [];
@@ -416,6 +449,16 @@ export class AuctionEngine {
       lastIngestAt: s.meta.lastIngestAtMs ? new Date(s.meta.lastIngestAtMs).toISOString() : null,
       lastReviewAt: s.meta.lastReviewAtMs ? new Date(s.meta.lastReviewAtMs).toISOString() : null,
       lastReview: s.meta.lastReview,
+      popularity: this.popularity
+        ? {
+            builtAt: new Date(this.popularity.builtAtMs).toISOString(),
+            auctionWeight: this.popularity.auctionWeight,
+            auctionSales: this.popularity.auctionSales,
+            storeRevenue: Math.round(this.popularity.storeRevenue),
+            coversRanked: Object.keys(this.popularity.byStem).length,
+            topCovers: this.popularity.topStems,
+          }
+        : null,
     };
   }
 }
