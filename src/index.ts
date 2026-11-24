@@ -276,7 +276,7 @@ function buildServer(config: Config, client: ShopifyClient, ebayClient: EbayClie
 
   // Automated auction engine controls (status + manual cycle triggers).
   if (auctionEngine && config.enableWrites) {
-    registerAuctionMachineTools(server, auctionEngine);
+    registerAuctionMachineTools(server, auctionEngine, jobs);
   }
 
   // Shopify→eBay tracking sync (on-demand trigger for the scheduled job).

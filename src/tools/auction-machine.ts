@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuctionEngine } from "../auction-engine.js";
 import { coverLabel } from "../auction-engine.js";
+import type { JobRunner } from "../job-runner.js";
 import { logToolCall } from "../logger.js";
 import { textContent } from "../format.js";
 
@@ -29,7 +30,7 @@ function wrap(name: string, handler: () => Promise<{ md: string; data: Record<st
   };
 }
 
-export function registerAuctionMachineTools(server: McpServer, engine: AuctionEngine): void {
+export function registerAuctionMachineTools(server: McpServer, engine: AuctionEngine, jobs: JobRunner): void {
   server.registerTool(
     "ebay_auction_status",
     { title: "Auction engine status", description: "Show the automated auction engine's state: active auctions, history, current adaptive floors, per-cover-type performance, last cycle times, and the latest strategy review.", inputSchema: {}, annotations: READ },
@@ -47,6 +48,15 @@ export function registerAuctionMachineTools(server: McpServer, engine: AuctionEn
       const head = args.dryRun ? `**DRY RUN** — would list ${r.listed.length} of ${r.candidates} eligible.` : `Listed ${r.listed.length}; ${r.failed.length} failed (${r.candidates} eligible).`;
       return { md: `${head}\n\n\`\`\`json\n${JSON.stringify(r, null, 2).slice(0, 12000)}\n\`\`\``, data: r as unknown as Record<string, unknown> };
     })())  as never,
+  );
+
+  server.registerTool(
+    "ebay_auction_adopt_existing",
+    { title: "Adopt existing eBay auctions", description: "Backfill: scan the 'ebay live' collections and adopt any SKUs that already have a live eBay auction into the engine's store, so sales ingest + performance start working against listings created outside the engine (manual, the bulk-list tool, or a prior run whose state was lost). Runs automatically on the schedule; this triggers it on demand. Runs as a background job — check progress/result with ebay_job_status.", inputSchema: { maxScan: z.number().int().min(1).max(5000).optional().describe("Cap how many candidate SKUs to scan this run (default 2000).") }, annotations: WRITE },
+    (async (args: { maxScan?: number }) => wrap("ebay_auction_adopt_existing", async () => {
+      const job = jobs.start("auction_adopt_existing", () => engine.adoptExisting(args.maxScan));
+      return { md: `Started adoption backfill as background job \`${job.jobId}\`. Check it with ebay_job_status { jobId: "${job.jobId}" }.`, data: { jobId: job.jobId, status: job.status } };
+    })()) as never,
   );
 
   server.registerTool(

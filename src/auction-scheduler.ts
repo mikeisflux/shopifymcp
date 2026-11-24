@@ -14,14 +14,17 @@ export class AuctionScheduler {
 
   start(): void {
     if (!this.cfg.enabled) { log.info("auction_scheduler_disabled"); return; }
-    // Ingest first (frees SKUs + updates history), then review, then list.
+    // Adopt listings created outside the engine (manual / bulk / pre-restart) so
+    // the store isn't blind to them, then ingest (frees SKUs + updates history),
+    // then review, then list.
+    this.every(this.cfg.ingestIntervalMin, "adopt", () => this.engine.adoptExisting());
     this.every(this.cfg.ingestIntervalMin, "ingest", () => this.engine.ingestSales());
     this.every(this.cfg.reviewIntervalMin, "review", () => this.engine.reviewAndAdapt());
     this.every(this.cfg.listIntervalMin, "list", () => this.engine.listBatch());
     // Standing daily check: flag sold-but-no-SKU (manual/lot) sales.
     this.every(this.cfg.noSkuCheckIntervalMin, "nosku", () => this.engine.checkNoSkuSales());
     log.info("auction_scheduler_started", {
-      list_min: this.cfg.listIntervalMin, ingest_min: this.cfg.ingestIntervalMin, review_min: this.cfg.reviewIntervalMin, nosku_min: this.cfg.noSkuCheckIntervalMin, batch: this.cfg.batchSize,
+      adopt_min: this.cfg.ingestIntervalMin, list_min: this.cfg.listIntervalMin, ingest_min: this.cfg.ingestIntervalMin, review_min: this.cfg.reviewIntervalMin, nosku_min: this.cfg.noSkuCheckIntervalMin, batch: this.cfg.batchSize,
     });
   }
 
@@ -29,11 +32,12 @@ export class AuctionScheduler {
 
   private every(minutes: number, name: string, fn: () => Promise<unknown>): void {
     const ms = Math.max(1, minutes) * 60 * 1000;
-    // Stagger the first run so all three don't fire at once on boot.
+    // Stagger the first run so the cycles don't fire at once on boot; adopt
+    // before ingest so freshly-adopted auctions are matchable in the same pass.
     const kickoff = setTimeout(() => {
       void this.run(name, fn);
       this.timers.push(setInterval(() => void this.run(name, fn), ms));
-    }, name === "ingest" ? 30_000 : name === "review" ? 90_000 : 150_000);
+    }, name === "adopt" ? 15_000 : name === "ingest" ? 45_000 : name === "review" ? 90_000 : name === "list" ? 150_000 : 210_000);
     this.timers.push(kickoff);
   }
 

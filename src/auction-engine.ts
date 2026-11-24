@@ -16,7 +16,7 @@
 import type { Config } from "./config.js";
 import type { ShopifyClient } from "./shopify-client.js";
 import type { EbayClient } from "./ebay-client.js";
-import { AuctionStore, type ClosedAuction } from "./auction-store.js";
+import { AuctionStore, type ActiveAuction, type ClosedAuction } from "./auction-store.js";
 import { log } from "./logger.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -72,6 +72,14 @@ const PRODUCTS_Q = /* GraphQL */ `
   }`;
 
 interface Candidate { sku: string; title: string; series: string; vendor: string; artist: string; imageUrl: string; coverType: string; }
+
+/** Shape of an eBay offer as returned by GET /sell/inventory/v1/offer?sku=. */
+interface RawOffer {
+  offerId?: string;
+  format?: string;
+  pricingSummary?: { auctionStartPrice?: { value?: string } };
+  listing?: { listingId?: string; listingStatus?: string };
+}
 
 export class AuctionEngine {
   constructor(
@@ -176,23 +184,55 @@ export class AuctionEngine {
     return { itemId: (pub.data as { listingId?: string }).listingId ?? "", offerId };
   }
 
+  /**
+   * Turn an existing eBay offer (from GET /offer?sku=) into an ActiveAuction we
+   * can track. Only live AUCTION offers are adopted. eBay's offer payload carries
+   * no start/end timestamps, so the window is approximated as now + durationDays;
+   * a sale still closes it immediately on the next ingest (the sale match is
+   * time-independent), and an unsold one reaps when the approximate window ends.
+   */
+  private offerToActive(sku: string, offer: RawOffer, now: number): ActiveAuction | null {
+    if (offer.format && offer.format !== "AUCTION") return null;
+    const status = offer.listing?.listingStatus;
+    if (status && status !== "ACTIVE") return null;
+    const offerId = offer.offerId ?? "";
+    if (!offerId) return null;
+    const coverType = coverTypeOf(sku);
+    const startPrice = Number(offer.pricingSummary?.auctionStartPrice?.value) || this.store.floor(coverType, this.config.auction.initialFloors[coverType] ?? 5);
+    return { sku, itemId: offer.listing?.listingId ?? "", offerId, coverType, startPrice, listedAtMs: now, endsAtMs: now + this.config.auction.durationDays * DAY_MS };
+  }
+
   /** Phase 1/2: list a batch, best performers first, skipping SKUs already live. */
-  async listBatch(limit = this.config.auction.batchSize, dryRun = false): Promise<{ listed: Array<{ sku: string; itemId: string; startPrice: number }>; skippedActive: number; failed: Array<{ sku: string; error: string }>; candidates: number }> {
+  async listBatch(limit = this.config.auction.batchSize, dryRun = false): Promise<{ listed: Array<{ sku: string; itemId: string; startPrice: number }>; adopted: number; skippedActive: number; skippedExistingOffer: number; failed: Array<{ sku: string; error: string }>; candidates: number }> {
     const now = this.nowMs();
     const perf = this.performance();
-    const candidates = (await this.gatherCandidates())
+    const all = await this.gatherCandidates();
+    const candidates = all
       .filter((c) => !this.store.isActive(c.sku, now))
       .sort((a, b) => (perf[b.coverType]?.score ?? 0) - (perf[a.coverType]?.score ?? 0));
+    const skippedActive = all.length - candidates.length;
 
     const listed: Array<{ sku: string; itemId: string; startPrice: number }> = [];
     const failed: Array<{ sku: string; error: string }> = [];
+    let adopted = 0;
+    let skippedExistingOffer = 0;
     for (const c of candidates.slice(0, limit)) {
       const startPrice = this.store.floor(c.coverType, this.config.auction.initialFloors[c.coverType] ?? 5);
       if (dryRun) { listed.push({ sku: c.sku, itemId: "(dry-run)", startPrice }); continue; }
       try {
-        // Guard against a pre-existing eBay offer (safe across restarts / manual listings).
+        // Already on eBay (prior run, manual, or bulk tool)? ADOPT it into the
+        // store so sales ingest can match it and performance builds — don't just
+        // skip, which left the engine blind to every existing listing.
         const existing = await this.ebay.request("GET", "/sell/inventory/v1/offer", { query: { sku: c.sku } }).catch(() => null);
-        if ((existing?.data as { offers?: unknown[] } | undefined)?.offers?.length) { continue; }
+        const offers = (existing?.data as { offers?: RawOffer[] } | undefined)?.offers ?? [];
+        if (offers.length) {
+          skippedExistingOffer++;
+          if (!this.store.get().active[c.sku]) {
+            const a = this.offerToActive(c.sku, offers[0]!, now);
+            if (a) { this.store.addActive(a); adopted++; }
+          }
+          continue;
+        }
         const { itemId, offerId } = await this.publishOne(c, startPrice);
         this.store.addActive({ sku: c.sku, itemId, offerId, coverType: c.coverType, startPrice, listedAtMs: now, endsAtMs: now + this.config.auction.durationDays * DAY_MS });
         listed.push({ sku: c.sku, itemId, startPrice });
@@ -202,8 +242,34 @@ export class AuctionEngine {
       }
     }
     this.store.setMeta({ lastListAtMs: now });
-    log.info("auction_list_batch", { listed: listed.length, failed: failed.length, candidates: candidates.length });
-    return { listed, skippedActive: 0, failed, candidates: candidates.length };
+    log.info("auction_list_batch", { listed: listed.length, adopted, skippedExistingOffer, skippedActive, failed: failed.length, candidates: candidates.length });
+    return { listed, adopted, skippedActive, skippedExistingOffer, failed, candidates: candidates.length };
+  }
+
+  /**
+   * Backfill: scan every candidate in the ebaylive collections and adopt any that
+   * already have a live eBay auction into the store, so performance + sales ingest
+   * start working against listings created outside the engine (manual, bulk tool,
+   * or a prior run whose state was lost to the /data permission bug). Bounded,
+   * paced, and idempotent — SKUs already tracked are skipped without an API call.
+   */
+  async adoptExisting(maxScan = 2000): Promise<{ scanned: number; adopted: number; alreadyActive: number; noLiveOffer: number; failed: number }> {
+    const now = this.nowMs();
+    const candidates = await this.gatherCandidates();
+    let scanned = 0, adopted = 0, alreadyActive = 0, noLiveOffer = 0, failed = 0;
+    for (const c of candidates.slice(0, maxScan)) {
+      scanned++;
+      if (this.store.get().active[c.sku]) { alreadyActive++; continue; }
+      try {
+        const res = await this.ebay.request("GET", "/sell/inventory/v1/offer", { query: { sku: c.sku } }).catch(() => null);
+        const offers = (res?.data as { offers?: RawOffer[] } | undefined)?.offers ?? [];
+        const a = offers.length ? this.offerToActive(c.sku, offers[0]!, now) : null;
+        if (a) { this.store.addActive(a); adopted++; } else noLiveOffer++;
+        await sleep(80);
+      } catch { failed++; }
+    }
+    log.info("auction_adopt_existing", { scanned, adopted, alreadyActive, noLiveOffer, failed });
+    return { scanned, adopted, alreadyActive, noLiveOffer, failed };
   }
 
   /** Phase 2/3: pull recent sold orders, mark sold, reap closed auctions. */
