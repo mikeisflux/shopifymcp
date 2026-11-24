@@ -252,6 +252,11 @@ export class AuctionEngine {
           // offer is already built, so one call lists it. This is the backlog the
           // engine used to skip (seeing "an offer exists" and assuming it was live).
           if (isAuction && off.offerId) {
+            // Unpublished offers often sit at shipToLocationAvailability quantity 0,
+            // which eBay rejects for auctions (25760). Ensure stock before publishing.
+            await this.ebay.request("POST", "/sell/inventory/v1/bulk_update_price_quantity", {
+              body: { requests: [{ sku: c.sku, shipToLocationAvailability: { quantity: 1 } }] },
+            }).catch(() => null);
             const pub = await this.ebay.request("POST", `/sell/inventory/v1/offer/${encodeURIComponent(off.offerId)}/publish`, {});
             const itemId = (pub.data as { listingId?: string }).listingId ?? off.listing?.listingId ?? "";
             const price = Number(off.pricingSummary?.auctionStartPrice?.value) || startPrice;
