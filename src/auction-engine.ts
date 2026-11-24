@@ -216,7 +216,7 @@ export class AuctionEngine {
   }
 
   /** Phase 1/2: list a batch, best performers first, skipping SKUs already live. */
-  async listBatch(limit = this.config.auction.batchSize, dryRun = false): Promise<{ listed: Array<{ sku: string; itemId: string; startPrice: number }>; adopted: number; skippedActive: number; skippedExistingOffer: number; failed: Array<{ sku: string; error: string }>; candidates: number }> {
+  async listBatch(limit = this.config.auction.batchSize, dryRun = false): Promise<{ listed: Array<{ sku: string; itemId: string; startPrice: number }>; adopted: number; relisted: number; skippedActive: number; skippedExistingOffer: number; failed: Array<{ sku: string; error: string }>; candidates: number }> {
     const now = this.nowMs();
     const perf = this.performance();
     const all = await this.gatherCandidates();
@@ -228,22 +228,41 @@ export class AuctionEngine {
     const listed: Array<{ sku: string; itemId: string; startPrice: number }> = [];
     const failed: Array<{ sku: string; error: string }> = [];
     let adopted = 0;
+    let relisted = 0;
     let skippedExistingOffer = 0;
     for (const c of candidates.slice(0, limit)) {
       const startPrice = this.store.floor(c.coverType, this.config.auction.initialFloors[c.coverType] ?? 5);
       if (dryRun) { listed.push({ sku: c.sku, itemId: "(dry-run)", startPrice }); continue; }
       try {
-        // Already on eBay (prior run, manual, or bulk tool)? ADOPT it into the
-        // store so sales ingest can match it and performance builds — don't just
-        // skip, which left the engine blind to every existing listing.
+        // Check eBay for an existing offer on this SKU.
         const existing = await this.ebay.request("GET", "/sell/inventory/v1/offer", { query: { sku: c.sku } }).catch(() => null);
-        const offers = (existing?.data as { offers?: RawOffer[] } | undefined)?.offers ?? [];
-        if (offers.length) {
-          skippedExistingOffer++;
-          if (!this.store.get().active[c.sku]) {
-            const a = this.offerToActive(c.sku, offers[0]!, now);
-            if (a) { this.store.addActive(a); adopted++; }
+        const off = (existing?.data as { offers?: RawOffer[] } | undefined)?.offers?.[0];
+        if (off) {
+          const isAuction = !off.format || off.format === "AUCTION";
+          // Already a LIVE auction? Adopt it so we track it; don't republish.
+          if (off.listing?.listingStatus === "ACTIVE") {
+            skippedExistingOffer++;
+            if (!this.store.get().active[c.sku]) {
+              const a = this.offerToActive(c.sku, off, now);
+              if (a) { this.store.addActive(a); adopted++; }
+            }
+            continue;
           }
+          // Offer exists but isn't live (unpublished / ended) — PUBLISH it. The
+          // offer is already built, so one call lists it. This is the backlog the
+          // engine used to skip (seeing "an offer exists" and assuming it was live).
+          if (isAuction && off.offerId) {
+            const pub = await this.ebay.request("POST", `/sell/inventory/v1/offer/${encodeURIComponent(off.offerId)}/publish`, {});
+            const itemId = (pub.data as { listingId?: string }).listingId ?? off.listing?.listingId ?? "";
+            const price = Number(off.pricingSummary?.auctionStartPrice?.value) || startPrice;
+            this.store.addActive({ sku: c.sku, itemId, offerId: off.offerId, coverType: c.coverType, startPrice: price, listedAtMs: now, endsAtMs: now + this.config.auction.durationDays * DAY_MS });
+            listed.push({ sku: c.sku, itemId, startPrice: price });
+            relisted++;
+            await sleep(150);
+            continue;
+          }
+          // Non-auction offer — leave it.
+          skippedExistingOffer++;
           continue;
         }
         const { itemId, offerId } = await this.publishOne(c, startPrice);
@@ -255,8 +274,8 @@ export class AuctionEngine {
       }
     }
     this.store.setMeta({ lastListAtMs: now });
-    log.info("auction_list_batch", { listed: listed.length, adopted, skippedExistingOffer, skippedActive, failed: failed.length, candidates: candidates.length });
-    return { listed, adopted, skippedActive, skippedExistingOffer, failed, candidates: candidates.length };
+    log.info("auction_list_batch", { listed: listed.length, relisted, adopted, skippedExistingOffer, skippedActive, failed: failed.length, candidates: candidates.length });
+    return { listed, adopted, relisted, skippedActive, skippedExistingOffer, failed, candidates: candidates.length };
   }
 
   /**
